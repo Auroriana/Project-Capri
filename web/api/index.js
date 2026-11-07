@@ -1,3 +1,4 @@
+import {createReranker} from '../lib/nvidia-rerank.js';
 import {withRuntime,rememberFailure} from '../lib/runtime-awareness.js';
 import {generateWithOverflow} from '../lib/provider-routing.js';
 import {withRequest,registerRequest,stopRequests,requestFetch as fetch,checkRequest} from '../lib/request-control.js';
@@ -112,6 +113,8 @@ async function handleRequest(req,res,generationController){
     requestOwner=user.id;
     if(req.method==='POST'&&route==='/api/stop')return send(200,{stopped:stopRequests(user.id),scope:'server-instance'});
     if(req.method==='POST'&&['/api/chat','/api/personality'].includes(route)){checkRequest();unregister=registerRequest(user.id,generationController);}
+    let retrievalUsage={rerankCalls:0,rerankFallbacks:0,rerankInputTokens:0,rerankMs:0};
+    const rank=createReranker({onUsage:event=>{retrievalUsage.rerankCalls++;retrievalUsage.rerankMs+=event.latencyMs;retrievalUsage.rerankFallbacks+=Number(event.fallback);retrievalUsage.rerankInputTokens+=event.inputTokens??event.estimatedInput??0;if(streaming)emit('progress',{stage:'reranking',model:event.model,fallback:event.fallback});}});
     const externalStage=(id,request,settings)=>generateWithOverflow(id,request,{
       generate:(model,input)=>externalGenerate(model,input,{signal:generationController.signal}),
       onFallback:()=>{if(streaming)emit('progress',{stage:'model-output',message:'Using Gemini for this larger stage, with the full context preserved.'});},
@@ -146,9 +149,9 @@ async function handleRequest(req,res,generationController){
         usage=addUsage(usage,callUsage(result.usage,request,result.answer,{model:result.modelUsed||personalityModel,role:'personality',phase,latencyMs:Date.now()-started}));return result;
       };
       const generate=(request,meta)=>completeGeneration(request,r=>generateOnce(r,meta),{json:true});
-      const search=async query=>{const started=Date.now();const rows=await sb('/rest/v1/rpc/aria_search',token,{p_query:keywordQuery(query),p_embedding:null,p_vault:null});usage.ragSearches++;usage.retrievalMs+=Date.now()-started;return rows;};
+      const search=async query=>{const started=Date.now();const rows=await sb('/rest/v1/rpc/aria_search',token,{p_query:keywordQuery(query),p_embedding:null,p_vault:null});usage.ragSearches++;usage.retrievalMs+=Date.now()-started;return rank(rows,query,{limit:4,characters:10000});};
       const searchWeb=async query=>{if(streaming)emit('progress',{stage:'web-search',query});if(!process.env.GEMINI_API_KEY||process.env.GEMINI_FREE_TIER_CONFIRMED!=='true')throw fail('Gemini web search is not configured.',503);const result=await webSearch(query,{generate:async(model,request)=>{const started=Date.now(),result=await gemini(model,request);usage=addUsage(usage,callUsage(result.usage,request,result.answer,{model,role:'web',phase:'grounding',latencyMs:Date.now()-started}));return result;},reserve:async(model,tokens)=>{if(!await sb('/rest/v1/rpc/aria_reserve',token,{p_model:model,p_tokens:tokens}))throw fail('Web search model quota reached.',429);}});return result;};
-      const result=await personalize({body,generate,search,webSearch:searchWeb,onScan:passages=>{if(streaming)emit('progress',{stage:'personality-scan',passages});}});return send(200,{...result,usage});
+      const result=await personalize({body,generate,search,rankPersonality:rank,webSearch:searchWeb,onScan:passages=>{if(streaming)emit('progress',{stage:'personality-scan',passages});}});return send(200,{...result,usage:{...usage,...retrievalUsage}});
     }
     if(req.method==='GET'&&route==='/api/session')return send(200,{email:user.email});
     if(await quickRoutes({req,route,url:new URL(req.url,'http://localhost'),token,sb,fail,send,readBody,generate:gemini}))return;
@@ -276,12 +279,12 @@ async function handleRequest(req,res,generationController){
         if(initial&&process.env.ENABLE_SEMANTIC_SEARCH==='true'){await reserve('gemini-embedding-2',Buffer.byteLength(query));vector=await embed(query);tokenUsage.embeddingCalls=(tokenUsage.embeddingCalls||0)+1;tokenUsage.embeddingTokensEstimated=(tokenUsage.embeddingTokensEstimated||0)+estimateText(query);}
         let found=await sb('/rest/v1/rpc/aria_search',token,{p_query:keywords,p_embedding:vector,p_vault:scope??null});
         if(!found.length&&scope&&!vault){found=await sb('/rest/v1/rpc/aria_search',token,{p_query:keywords,p_embedding:null,p_vault:null});tokenUsage.ragSearches++;}
-        found=selectPassages(found,query);
+        found=await rank(found,query);
         tokenUsage.ragSearches=(tokenUsage.ragSearches||0)+1;tokenUsage.semanticSearches=(tokenUsage.semanticSearches||0)+(vector?1:0);tokenUsage.retrievalMs=(tokenUsage.retrievalMs||0)+Date.now()-started;return found;
       };
       const routeOn=process.env.ENABLE_ROUTER!=='false';
       const options={message,search,generate,concise,deep,onProgress,files,history,overview:getOverview,route:routeOn,followup,timezone,council:{enabled:core.councilEnabled,models:core.councilModels}};
-      const finish=result=>send(200,{...result,usage:tokenUsage,model:core.reasoning||model,followupCache:result.research?.reusedSources?validated.followupCache:cacheFollowup(result,user.id,vault)});
+      const finish=result=>send(200,{...result,usage:{...tokenUsage,...retrievalUsage},model:core.reasoning||model,followupCache:result.research?.reusedSources?validated.followupCache:cacheFollowup(result,user.id,vault)});
       // Old assistant answers and deleted evidence never become fresh vault evidence.
       if(incoming.resumable===true){
         const hash=requestHash(validated),state=incoming.continuation?openCheckpoint(incoming.continuation,user.id,hash):createResearchState();

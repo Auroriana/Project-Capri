@@ -12,7 +12,7 @@ export function addUsage(a,b){
   const out={totalTokenCount:(a?.totalTokenCount||0)+(b?.totalTokenCount||0),estimated:!!(a?.estimated||b?.estimated)};
   for(const key of fields)if(a?.[key]!==undefined||b?.[key]!==undefined)out[key]=(a?.[key]||0)+(b?.[key]||0);
   if(a?.calls||b?.calls)out.calls=[...(a?.calls||[]),...(b?.calls||[])];
-  for(const key of ['ragSearches','semanticSearches','embeddingCalls','embeddingTokensEstimated','retrievalMs'])if(a?.[key]!==undefined||b?.[key]!==undefined)out[key]=(a?.[key]||0)+(b?.[key]||0);
+  for(const key of ['ragSearches','semanticSearches','embeddingCalls','embeddingTokensEstimated','retrievalMs','rerankCalls','rerankFallbacks','rerankInputTokens','rerankMs'])if(a?.[key]!==undefined||b?.[key]!==undefined)out[key]=(a?.[key]||0)+(b?.[key]||0);
   return out;
 }
 export function usageTitle(usage){return (usage.estimated?'Includes estimated tokens':'Tokens reported by models')+' · '+[['Input','promptTokenCount'],['Output','candidatesTokenCount'],['Thinking','thoughtsTokenCount'],['Tool prompt','toolUsePromptTokenCount'],['Cached input (included)','cachedContentTokenCount'],['Cache writes (included)','cacheCreationTokenCount']].map(([name,key])=>name+': '+(usage[key]??'unavailable')).join(' · ');}
@@ -53,6 +53,7 @@ export function usageDetails(usage){
     if(c.promptEstimates)lines.push('   Approximate prompt tokens (UTF-8 bytes / 4): '+Object.entries(c.promptEstimates).map(([k,v])=>`${k} ${v}`).join(' · '));
   }
   lines.push(`RAG searches: ${usage.ragSearches??'unavailable'} · semantic: ${usage.semanticSearches??'unavailable'} · retrieval: ${usage.retrievalMs??'unavailable'} ms`, `Embedding calls: ${usage.embeddingCalls??'unavailable'} · embedding tokens (separate estimate): ${usage.embeddingTokensEstimated??'unavailable'}`);
+  lines.push('NVIDIA reranking: '+(usage.rerankCalls??0)+' calls · '+(usage.rerankFallbacks??0)+' local fallbacks · Input '+(usage.rerankInputTokens??0)+' tokens (provider-reported or estimated) · '+(usage.rerankMs??0)+' ms');
   lines.push('Cache counts are included in input. Prompt component estimates are diagnostic, not provider billing counts. Only completed calls are itemized; interrupted or failed calls may incur unreported usage.');
   return lines.join('\n');
 }

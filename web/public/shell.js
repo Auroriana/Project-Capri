@@ -1,3 +1,4 @@
+import {completionIntent,reminderId} from '/reminder-actions.js';
 import {requestErrorText} from '/request-error.js';
 import {mountNotifications} from '/notifications.js';
 import {spokenText,reminderPresentation} from '/spoken-text.js';
@@ -25,9 +26,9 @@ let booting=true,hardStopping=false,workController=new AbortController(),workEpo
 let history=[],signedIn=false,busy=false,cfg,first=true,owner="",currentChat=null,chatController=null;
 const terminals=mountTerminals($('terminals'),$('pt'));
 const timeline=createTimeline({api,owner:()=>owner,legacy:chatRows});
-const notifications=mountNotifications({api,container:document.querySelector('.chat-options'),onError:message=>err(message)});
+const notifications=mountNotifications({api,owner:()=>owner,container:document.querySelector('.chat-options'),onError:message=>err(message)});
 const core=mountCoreSettings({api,owner:()=>owner,busy:()=>busy,onSaved:refreshPendingSettings,onWelcome:()=>loadWelcome(owner,true),onArchive:()=>syncHistory(true)});
-const agenda=mountAgenda({api,owner:()=>owner,busy:()=>busy,ready:()=>!booting,model:()=>$('model').value,settings:()=>core.get(),onError:message=>err(message),save:async()=>{},open:async()=>tab(false),reply:text=>{$('q').value=text;$('f').requestSubmit();},onDue:rows=>{for(const r of rows)notifications.notify({id:r.id+'/opening',role:'model',event:'reminder.due',text:r.notification||'Time to '+r.text});scheduleSync();},openOverview:async note=>{await loadVaults();tab(true);await workspace.open(note.path,note.vault);}});
+const agenda=mountAgenda({api,owner:()=>owner,busy:()=>busy,ready:()=>!booting,model:()=>$('model').value,settings:()=>core.get(),onCompleted:completeReminderUI,onError:message=>err(message),save:async()=>{},open:async()=>tab(false),reply:text=>{$('q').value=text;$('f').requestSubmit();},onDue:rows=>{for(const r of rows)notifications.notify({id:r.id+'/opening',role:'model',event:'reminder.due',text:r.notification||'Time to '+r.text,reminder:r.id,started:Date.parse(r.due_at)});scheduleSync();},openOverview:async note=>{await loadVaults();tab(true);await workspace.open(note.path,note.vault);}});
 function showPersonality(it,m,animate=true){
  if(m.personalityPending&&!m.personality){
    setStatus(it,'This earlier reply was interrupted.');
@@ -129,7 +130,12 @@ function onProgress(it,ev){
  else if(false&&ev.stage==='thought-summary'){let t=it.querySelector('.th');if(!t){t=el('details');t.className='th';t.append(el('summary','Thinking'),el('div'));it.querySelector('.who').after(t)}t.lastChild.append(ev.text)}}
 function showUsage(it,usage){if(!usage)return;it.dataset.tokens=String(usage.totalTokenCount||0);const n=it.querySelector('.message-tokens');if(n){n.textContent=`${usage.estimated?'≈ ':''}Input ${usage.promptTokenCount??'—'} · Output ${usage.candidatesTokenCount??'—'} · Total ${usage.totalTokenCount||0}`;n.title=usageTitle(usage);}const menu=it.querySelector('.message-menu');if(menu){menu.querySelector('.token-breakdown')?.remove();const d=el('details');d.className='token-breakdown';d.append(el('summary','Token details'),el('pre',usageDetails(usage)));menu.append(d);}}
 let replyTarget=null;
+async function completeReminderUI(id){
+ for(const m of currentChat?.messages||[])if(reminderId(m)===id){m.reminderCompleted=true;m.edited=Date.now();const node=[...$('msgs').children].find(n=>n.dataset.message===m.id);if(node)messageTools(node,m);}
+ const registration=await navigator.serviceWorker?.getRegistration();for(const notice of await registration?.getNotifications({tag:id+'/opening'})||[])notice.close();await persistChat();
+}
 function messageTools(it,m){
+ it.querySelector('.reminder-done')?.remove();const rid=reminderId(m);if(rid){const done=el('button',m.reminderCompleted?'Done':'Mark done');done.className='reminder-done';done.disabled=!!m.reminderCompleted;done.onclick=async()=>{done.disabled=true;try{await agenda.complete(rid);}catch(e){done.disabled=false;err(e.message);}};it.append(done);}
  it.dataset.message=m.id;const metadata=[...it.querySelectorAll('.refs,.web-panel,.note-chip')];it.querySelector('.message-menu')?.remove();
  it.querySelector('.message-reply')?.remove();
  const menu=el('details'),toggle=el('summary','•••');menu.className='message-menu';toggle.setAttribute('aria-label','Message options');
@@ -340,6 +346,11 @@ async function processBatch(batch){const epoch=workEpoch;let text=batch.map(x=>x
   const due=scheduledTime(text)||scheduledTime('in '+text);if(due){currentChat.capture={...currentChat.reminderDraft,due:due.toISOString()};delete currentChat.reminderDraft;await persistChat();await runCapture();return;}
   if(/^(?:cancel|never mind|nevermind|forget it)[.!]?$/i.test(text)){delete currentChat.reminderDraft;await localReply('Okay, that reminder is cancelled.');return;}
  }
+ const completion=completionIntent(text);
+ if(!sent.length&&completion){const quoted=batch.at(-1)?.replyTo?.id;const reference=reminderId(currentChat.messages.find(m=>m.id===quoted))||reminderId([...currentChat.messages].reverse().find(m=>m.role==='model'&&!m.reminderCompleted));
+ const {matches}=await api('reminder-resolve',{message:text,reference});if(epoch!==workEpoch)return;
+ if(matches.length===1){await agenda.complete(matches[0].id);await localReply('Done — '+matches[0].text+' is checked off.');}
+ else{await localReply(matches.length?'I found more than one matching reminder. Pick the one you finished in Reminders.':'Which reminder did you finish? Open Reminders and pick it, or tell me its name.');await agenda.show();}return;}
  if(!sent.length&&!captureIntent(text)&&reminderQuery(text)==='today'){await showTodayReminders();return;}
  if(!sent.length&&captureIntent(text)){
   const capture=await agenda.capture(text,batch.at(-1).id);if(epoch!==workEpoch)throw new DOMException('Stopped by you.','AbortError');

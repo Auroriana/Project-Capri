@@ -11,16 +11,16 @@ const indexed=records.map(record=>{
 const frequency=new Map();for(const row of indexed)for(const word of row.body)frequency.set(word,(frequency.get(word)??0)+1);
 
 // Local keyword retrieval with title/metadata weighting; no embedding provider or network call.
-export function searchPersonality(query,{exclude=[],remainingCharacters=PERSONALITY_LIMITS.characters}={}){
+export function searchPersonality(query,{exclude=[],remainingCharacters=PERSONALITY_LIMITS.characters,limit=PERSONALITY_LIMITS.passages,candidateMode=false}={}){
  const words=terms(query),excluded=new Set(exclude);
  if(!words.length)return [];
  const ranked=indexed.filter(r=>!excluded.has(r.record.id)).map(row=>({row,score:words.reduce((score,word)=>score+(row.body.has(word)?Math.log(1+indexed.length/(1+(frequency.get(word)??0))):0)+(row.heading.has(word)?4:0),0)})).filter(r=>r.score>0).sort((a,b)=>b.score-a.score||a.row.record.id.localeCompare(b.row.record.id));
- let available=Math.min(PERSONALITY_LIMITS.characters,Math.max(0,remainingCharacters));const hits=[];
+ let available=Math.min(candidateMode?30000:PERSONALITY_LIMITS.characters,Math.max(0,remainingCharacters));const hits=[];
  for(const {row}of ranked){
   // Keep whole notes, including their provenance and adaptation boundaries.
   if(row.text.length>available)continue;
   hits.push({id:row.record.id,path:row.record.path,module:row.record.module,kind:row.record.kind,status:row.record.status,sourceId:row.record.sourceId,contentHash:row.record.contentHash,content:row.text});available-=row.text.length;
-  if(hits.length===PERSONALITY_LIMITS.passages)break;
+  if(hits.length===Math.min(12,limit))break;
  }
  return hits;
 }
@@ -34,11 +34,11 @@ export function personalitySearchRequest(answer){
  return query.trim();
 }
 
-export function turnPassages(message,history=[]){
+export function turnPassages(message,history=[],options={}){
  // Short reactions often name their subject only in the preceding turn.
- const direct=searchPersonality(message);
- const hits=direct.length?direct:searchPersonality(history.at(-1)?.text?.slice(-220)||'');
- return hits.length?hits:searchPersonality('baseline delivery casual chat');
+ const direct=searchPersonality(message,options);
+ const hits=direct.length?direct:searchPersonality(history.at(-1)?.text?.slice(-220)||'',options);
+ return hits.length?hits:searchPersonality('baseline delivery casual chat',options);
 }
 
 export const passageInfo=({id,path,kind,sourceId,contentHash})=>({id,path,kind,sourceId,contentHash});

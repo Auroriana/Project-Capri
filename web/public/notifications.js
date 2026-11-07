@@ -1,8 +1,9 @@
+import {freshReminder,reminderId} from './reminder-actions.js';
 import {spokenText,reminderPresentation} from './spoken-text.js';
-export function mountNotifications({api,container,onError}){
+export function mountNotifications({api,container,onError,owner=()=>''}){
  const button=document.createElement('button');button.type='button';button.id='notification-toggle';
  let enabled=localStorage.getItem('capri.notifications')==='on',audio,registration,lastSound=0;
- const seen=new Set();
+ let account='',seen=new Set();const load=()=>{if(account===owner())return;account=owner();try{seen=new Set(JSON.parse(localStorage.getItem('capri.alerts.'+account)||'[]'));}catch{seen=new Set();}};
  const refresh=()=>{button.textContent=enabled?'Notifications on':'Enable notifications';button.setAttribute('aria-pressed',String(enabled));};
  const unlock=()=>{try{audio??=new (window.AudioContext||window.webkitAudioContext)();void audio.resume();}catch{}};
  document.addEventListener('pointerdown',()=>{if(enabled)unlock();});
@@ -21,7 +22,8 @@ export function mountNotifications({api,container,onError}){
  }catch(e){refresh();onError(e.message);}};
  refresh();container.append(button);
  return {async restore(){if(enabled&&globalThis.Notification?.permission==='granted')try{await setup();}catch(e){onError('Notification setup pending: '+e.message);}},notify(message){
-  if(!enabled||message.role!=='model'||seen.has(message.id))return;seen.add(message.id);
+  load();const id=reminderId(message);if(id&&(message.reminderCompleted||!freshReminder(message.started??message.sentAt)))return;
+  if(!enabled||message.role!=='model'||seen.has(message.id))return;seen.add(message.id);try{localStorage.setItem('capri.alerts.'+account,JSON.stringify([...seen].slice(-1000)));}catch{}
   const body=reminderPresentation(message).text||spokenText(message.text);sound();
   if(!document.hidden&&document.hasFocus())return;
   if(globalThis.Notification?.permission!=='granted')return;

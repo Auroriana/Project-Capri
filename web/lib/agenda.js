@@ -1,10 +1,12 @@
+import {completionIntent,matchingReminders} from '../public/reminder-actions.js';
 import {settingsOf} from './core-settings.js';
 import {isUuid} from './notes.js';
 import {captureIntent,reminderContent} from '../public/capture.js';
 import {archiveReminderOverview} from './reminder-overview.js';
 export async function agendaRoutes({req,route,token,sb,send,fail,readBody,generate,model}){
- if(!['/api/capture','/api/agenda','/api/reminder-complete','/api/reminder-overview'].includes(route))return false;
+ if(!['/api/capture','/api/agenda','/api/reminder-complete','/api/reminder-overview','/api/reminder-resolve','/api/reminder-status'].includes(route))return false;
  const rpc=(name,body)=>sb('/rest/v1/rpc/'+name,token,body);
+ if(route==='/api/reminder-status'&&req.method==='GET'){const key=new URL(req.url,'http://localhost').searchParams.get('key');if(!isUuid(key))throw fail('Invalid reminder.');const active=(await rpc('aria_reminder_list',{})).some(r=>r.id===key&&!r.completed_at);send(200,{active});return true;}
  if(route==='/api/agenda'&&req.method==='GET'){
   await rpc('aria_reminder_conversations',{});
   const reminders=await rpc('aria_reminder_list',{});
@@ -15,9 +17,10 @@ export async function agendaRoutes({req,route,token,sb,send,fail,readBody,genera
  if(req.method!=='POST')throw fail('Method not allowed.',405);
  const b=await readBody(req,80000);
  if(route==='/api/reminder-overview'){const data=await archiveReminderOverview({sb,token,timezone:b.timezone});send(200,{answer:data.answer,note:data.note});return true;}
+ if(route==='/api/reminder-resolve'){const intent=completionIntent(b.message);if(!intent)throw fail('Ask to mark a reminder done.');const rows=await rpc('aria_reminder_list',{});const matches=intent.reference?(isUuid(b.reference)?rows.filter(r=>r.id===b.reference):rows):matchingReminders(rows,intent.query);send(200,{matches:matches.map(({id,text,due_at})=>({id,text,due_at}))});return true;}
  if(!isUuid(b.key))throw fail('A valid request identifier is required.');
  if(route==='/api/reminder-complete'){
-  const result=await rpc('aria_reminder_complete',{p_id:b.key});
+  const result=await rpc('aria_reminder_complete',{p_id:b.key});if(!result?.ok)throw fail('Reminder not found.',404);
   if(b.timezone)try{await archiveReminderOverview({sb,token,timezone:b.timezone});}catch(e){result.archiveWarning=e.message;}
   send(200,result);return true;
  }

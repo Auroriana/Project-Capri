@@ -18,18 +18,20 @@ export async function pushRoutes({req,route,token,sb,send,fail,readBody}){
  const {subscription}=await readBody(req,5000);if(!validSubscription(subscription))throw fail('Unsupported or invalid push subscription.');
  await sb('/rest/v1/rpc/aria_push_subscribe',token,{p_subscription:subscription});send(200,{ok:true});return true;
 }
-export async function deliverReminders({rpc,deliver=webpush.sendNotification.bind(webpush),env=process.env,now=Date.now,budgetMs=75000}){
+export async function deliverReminders({rpc,deliver=webpush.sendNotification.bind(webpush),env=process.env,now=Date.now,budgetMs=75000,isActive=async()=>true}){
  const start=now(),jobs=await rpc('aria_reminder_claim',{});let delivered=0,failed=0,deferred=0;
  // Claim also materializes in-app messages, independently of push configuration.
  if(!env.VAPID_PUBLIC_KEY||!env.VAPID_PRIVATE_KEY||!env.VAPID_SUBJECT)return {delivered:0,failed:0,inApp:jobs.length,pushConfigured:false};
  for(const job of jobs){
   if(now()-start>=budgetMs){await rpc('aria_reminder_release',{p_id:job.id,p_lease:job.push_lease});deferred++;continue;}
+  const due=Date.parse(job.due_at);if(Number.isFinite(due)&&now()-due>900000){await rpc('aria_reminder_delivery',{p_id:job.id,p_lease:job.push_lease,p_delivered:true});continue;}
+  if(!await isActive(job.id))continue;
   const payload=JSON.stringify(reminderEvent(job));
   const subscriptions=await rpc('aria_notification_targets',{p_id:job.id});let success=false,retry=false;
   await mapConcurrent(subscriptions,4,async sub=>{
    if(!validSubscription(sub.subscription))return;
    const remaining=budgetMs-(now()-start);if(remaining<=0){retry=true;return;}
-   try{await deliver(sub.subscription,payload,{TTL:86400,urgency:'high',timeout:Math.min(15000,remaining),...(env.HTTPS_PROXY?{proxy:env.HTTPS_PROXY}:{}),vapidDetails:{subject:env.VAPID_SUBJECT,publicKey:env.VAPID_PUBLIC_KEY,privateKey:env.VAPID_PRIVATE_KEY}});await rpc('aria_notification_ack',{p_id:job.id,p_lease:job.push_lease,p_target:sub.subscription.endpoint});success=true;}
+   try{await deliver(sub.subscription,payload,{TTL:900,urgency:'high',timeout:Math.min(15000,remaining),...(env.HTTPS_PROXY?{proxy:env.HTTPS_PROXY}:{}),vapidDetails:{subject:env.VAPID_SUBJECT,publicKey:env.VAPID_PUBLIC_KEY,privateKey:env.VAPID_PRIVATE_KEY}});await rpc('aria_notification_ack',{p_id:job.id,p_lease:job.push_lease,p_target:sub.subscription.endpoint});success=true;}
    catch(e){if([404,410].includes(e.statusCode))await rpc('aria_push_remove',{p_endpoint:sub.subscription.endpoint});else retry=true;}
   });
   await rpc('aria_reminder_delivery',{p_id:job.id,p_lease:job.push_lease,p_delivered:!retry});
@@ -43,7 +45,7 @@ export async function reminderWorker({req,sb,fail,send}){
  const session=await sb('/auth/v1/token?grant_type=password',null,{email:process.env.ARIA_EMAIL,password:process.env.ARIA_PASSWORD});
  if(session.user?.id!==process.env.OWNER_USER_ID)throw fail('Worker account does not own Capri.',403);
  const token=session.access_token,rpc=(name,body)=>sb('/rest/v1/rpc/'+name,token,body);
- const result=await deliverReminders({rpc}),reminders=await rpc('aria_reminder_list',{}),archiveWarnings=[];
+ const result=await deliverReminders({rpc,isActive:async id=>(await rpc('aria_reminder_list',{})).some(r=>r.id===id&&!r.completed_at)}),reminders=await rpc('aria_reminder_list',{}),archiveWarnings=[];
  await mapConcurrent([...new Set(reminders.map(r=>r.timezone))],3,async timezone=>{try{await archiveReminderOverview({sb,token,timezone});}catch(e){archiveWarnings.push(e.message);}});
  send(200,{...result,...(archiveWarnings.length?{archiveWarnings}:{})});
 }

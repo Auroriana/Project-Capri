@@ -3,6 +3,7 @@ import {credential} from './provider-credentials.js';
 import {claude} from './claude.js';
 export const providers={groq:{base:'https://api.groq.com/openai/v1',key:'GROQ_API_KEY'},nim:{base:'https://integrate.api.nvidia.com/v1',key:'NVIDIA_API_KEY'},deepseek:{base:'https://api.deepseek.com',key:'DEEPSEEK_API_KEY'},openrouter:{base:'https://openrouter.ai/api/v1',key:'OPENROUTER_API_KEY'},anthropic:{base:'https://api.anthropic.com/v1',key:'ANTHROPIC_API_KEY'}};
 export const externalModels=[...['claude-haiku-5-5','claude-sonnet-5-5','claude-opus-5-5','claude-fable-5-1'].map(id=>({id,name:id,provider:'anthropic'})),...['deepseek-flash','deepseek-v4-pro','deepseek-v4-flash','deepseek-v4-flash-vision-exp'].map(id=>({id:'deepseek:'+id,name:id,provider:'deepseek'})),...['openai/gpt-oss-120b','openai/gpt-oss-20b'].map(id=>({id:'groq:'+id,name:'Groq / '+id,provider:'groq'}))];
+externalModels.push({id:'nim:nvidia/nemotron-3-super-120b-a12b',name:'NVIDIA / Nemotron 3 Super 120B A12B',provider:'nim'});
 externalModels.push({id:'nim:nvidia/nemotron-3-ultra-550b-a55b',name:'NVIDIA / Nemotron 3 Ultra 550B A55B',provider:'nim'});
 export const providerKey=provider=>credential(provider)?.key||process.env[providers[provider]?.key];
 export const providerOf=id=>id.startsWith('claude-')?'anthropic':id.split(':')[0];

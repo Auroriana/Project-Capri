@@ -14,7 +14,7 @@ const REF=/\[((?:[SP]\d+)(?:\s*[,;]\s*[SP]\d+)*)\]/g;
 const refs=s=>new Set([...s.matchAll(REF)].flatMap(m=>m[1].match(/[SP]\d+/g)));
 const stripRefs=t=>typeof t==='string'?t.replace(/ ?\[(?:[SP]\d+)(?:\s*[,;]\s*[SP]\d+)*\]/g,''):t;
 const clean=m=>({...m,text:stripRefs(m.text)});
-export async function personalize({body,generate,search,webSearch,groundedWeb=null,onScan=()=>{}}){
+export async function personalize({body,generate,search,webSearch,groundedWeb=null,onScan=()=>{},rankPersonality=null}){
  const safeWebSearch=async query=>{try{return await webSearch(query);}catch(e){checkRequest();return {failed:true,error:String(e.message||'Search unavailable').slice(0,500),answer:'The web search attempt failed. No web facts were retrieved. Reason: '+String(e.message||'Search unavailable').slice(0,500),sources:[]};}};
  const settings=settingsOf(body.settings);if(!settings.enabled)return {answer:body.answer||'',sources:[]};
  if(!['ack','rewrite','turn'].includes(body.action)||typeof body.message!=='string'||body.message.length>4000||typeof (body.answer??'')!=='string'||(body.answer?.length||0)>100000||!Array.isArray(body.history??[])||JSON.stringify(body.history??[]).length>180000)throw Object.assign(new Error('Invalid personality request.'),{status:400});
@@ -33,7 +33,8 @@ export async function personalize({body,generate,search,webSearch,groundedWeb=nu
   const system=speaking?'Your preferred conversational name is Capri.\n'+settings.prompts.personality+'\n'+conversationDirection+'\n'+deliveryInstruction+'\n'+CARD_SCOPE:'Choose only necessary information retrieval. Do not write the final reply. '+conversationDirection;
   return {systemInstruction:{parts:[{text:system+'\n'+instruction}]},contents:[{role:'user',parts:[{text:JSON.stringify(input)}]}],generationConfig:{maxOutputTokens:max,...(json?{responseMimeType:'application/json'}:{})}};
  };
- const initialPassages=turnPassages(body.message,conversation);
+ const candidates=turnPassages(body.message,conversation,rankPersonality?{candidateMode:true,limit:12,remainingCharacters:30000}:{});
+ const initialPassages=rankPersonality?await rankPersonality(candidates,body.message,{limit:3,characters:6000}):candidates;
  onScan(initialPassages.map(passageInfo));
  const samples=dialogueSamples(body.message);
  const researchInfo={method:'local-keyword',searched:true,searches:1,dialogueExamples:samples.map(s=>s.id),passages:initialPassages.map(passageInfo)};
@@ -50,7 +51,7 @@ export async function personalize({body,generate,search,webSearch,groundedWeb=nu
 
      const query=choice.searchQuery;if(typeof query!=='string'||!query.trim()||query.length>300)throw Error('Invalid public search query.');
      const grounded=settings.web==='off'?{failed:true,answer:'Web search is turned off in settings. No search was performed.',sources:[]}:await safeWebSearch(query.trim());
-     return {route:'reply',...await personalize({body:{...body,action:'rewrite',answer:grounded.answer,sprite:true},generate,search,webSearch,groundedWeb:grounded,onScan})};
+     return {route:'reply',...await personalize({body:{...body,action:'rewrite',answer:grounded.answer,sprite:true},generate,search,webSearch,groundedWeb:grounded,onScan,rankPersonality})};
    }
    if(route==='reply'){choice.blocks=messageBlocks(choice.messages,choice.answer);choice.answer=choice.blocks.join(BLOCK_SEPARATOR);}
    if(route==='reply'&&(typeof choice.answer!=='string'||!choice.answer.trim()))throw Object.assign(new Error('Capri returned an empty reply. Please retry.'),{status:502});
@@ -95,7 +96,8 @@ export async function personalize({body,generate,search,webSearch,groundedWeb=nu
   if(!query)break;
   if(exhausted||attempt===PERSONALITY_LIMITS.rounds)throw Object.assign(new Error('Capri requested more personality searches than allowed. Retry the response.'),{status:502});
   if(personalityQueries.some(q=>q.toLowerCase()===query.toLowerCase())){exhausted=true;continue;}
-  const hits=searchPersonality(query,{exclude:personalityPassages.map(p=>p.id),remainingCharacters:PERSONALITY_LIMITS.characters-personalityPassages.reduce((n,p)=>n+p.content.length,0)});
+  let hits=searchPersonality(query,{exclude:personalityPassages.map(p=>p.id),remainingCharacters:PERSONALITY_LIMITS.characters-personalityPassages.reduce((n,p)=>n+p.content.length,0)});
+  if(rankPersonality)hits=await rankPersonality(hits,query,{limit:3,characters:Math.max(0,PERSONALITY_LIMITS.characters-personalityPassages.reduce((n,p)=>n+p.content.length,0))});
   personalityQueries.push(query);personalityPassages.push(...hits);onScan(personalityPassages.map(passageInfo));exhausted=personalityQueries.length>=PERSONALITY_LIMITS.rounds||hits.length===0;
  }
  let expression='neutral_attention',delaySeconds=0;

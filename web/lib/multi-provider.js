@@ -1,3 +1,4 @@
+import {requestFetch as fetch} from './request-control.js';
 import {credential} from './provider-credentials.js';
 import {claude} from './claude.js';
 export const providers={groq:{base:'https://api.groq.com/openai/v1',key:'GROQ_API_KEY'},nim:{base:'https://integrate.api.nvidia.com/v1',key:'NVIDIA_API_KEY'},deepseek:{base:'https://api.deepseek.com',key:'DEEPSEEK_API_KEY'},openrouter:{base:'https://openrouter.ai/api/v1',key:'OPENROUTER_API_KEY'},anthropic:{base:'https://api.anthropic.com/v1',key:'ANTHROPIC_API_KEY'}};
@@ -24,7 +25,7 @@ export async function externalGenerate(id,request,{signal}={},fetcher=fetch){
  const system=(request.systemInstruction?.parts||[]).map(p=>p.text||'').join('\n')+(request.generationConfig?.responseMimeType==='application/json'?'\nReturn only valid JSON, no code fences.':'');
  const body={model,messages:[{role:'system',content:system},...request.contents.map(c=>({role:c.role==='model'?'assistant':'user',content:c.parts.map(p=>p.text||'').join('\n')}))],max_tokens:request.generationConfig?.maxOutputTokens||4096,stream:false};
  const response=await fetcher(p.base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+providerKey(provider)},body:JSON.stringify(body),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(120000)]):AbortSignal.timeout(120000)});
- if(!response.ok)throw Object.assign(Error(provider+' request failed (HTTP '+response.status+').'),{status:response.status===429?429:response.status>=500?503:400});
+ if(!response.ok)throw Object.assign(Error(provider+' request failed (HTTP '+response.status+').'),{status:response.status===413?413:response.status===429?429:response.status>=500?503:400,providerStatus:response.status});
  const data=await response.json(),choice=data.choices?.[0],answer=choice?.message?.content,u=data.usage;
  if(typeof answer!=='string'||!answer.trim())throw Object.assign(Error(provider+' returned no answer.'),{status:502});
  return {answer,truncated:choice.finish_reason==='length',usage:u?{promptTokenCount:u.prompt_tokens,candidatesTokenCount:u.completion_tokens,totalTokenCount:u.total_tokens,cachedContentTokenCount:u.prompt_tokens_details?.cached_tokens??u.prompt_cache_hit_tokens??0}:null};

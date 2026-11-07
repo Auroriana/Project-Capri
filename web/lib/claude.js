@@ -1,3 +1,4 @@
+import {requestFetch as fetch} from './request-control.js';
 export async function claude(model,request,{signal,apiKey=process.env.ANTHROPIC_API_KEY}={},fetcher=fetch){
  if(!apiKey||process.env.CLAUDE_API_ENABLED!=='true')throw Object.assign(new Error('Claude requires ANTHROPIC_API_KEY and CLAUDE_API_ENABLED=true on the server.'),{status:503});
  const messages=request.contents.map(c=>({role:c.role==='model'?'assistant':'user',content:c.parts.map(p=>p.text!==undefined?{type:'text',text:p.text}:{type:p.inlineData.mimeType==='application/pdf'?'document':'image',source:{type:'base64',media_type:p.inlineData.mimeType,data:p.inlineData.data}})}));

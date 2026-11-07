@@ -20,12 +20,12 @@ import {mountQuick} from '/quick.js';
 import {conversationMemory,chatRows} from '/chat-store.js';
 
 const $=id=>document.getElementById(id),el=(t,x)=>{const n=document.createElement(t);if(x!==undefined)n.textContent=x;return n};
-let booting=true;
+let booting=true,hardStopping=false,workController=new AbortController(),workEpoch=0;
 let history=[],signedIn=false,busy=false,cfg,first=true,owner="",currentChat=null,chatController=null;
 const terminals=mountTerminals($('terminals'),$('pt'));
 const timeline=createTimeline({api,owner:()=>owner,legacy:chatRows});
 const notifications=mountNotifications({api,container:document.querySelector('.chat-options'),onError:message=>err(message)});
-const core=mountCoreSettings({api,owner:()=>owner,busy:()=>busy,onWelcome:()=>loadWelcome(owner,true),onArchive:()=>syncHistory(true)});
+const core=mountCoreSettings({api,owner:()=>owner,busy:()=>busy,onSaved:refreshPendingSettings,onWelcome:()=>loadWelcome(owner,true),onArchive:()=>syncHistory(true)});
 const agenda=mountAgenda({api,owner:()=>owner,busy:()=>busy,ready:()=>!booting,model:()=>$('model').value,settings:()=>core.get(),onError:message=>err(message),save:async()=>{},open:async()=>tab(false),reply:text=>{$('q').value=text;$('f').requestSubmit();},onDue:rows=>{for(const r of rows)notifications.notify({id:r.id+'/opening',role:'model',event:'reminder.due',text:r.notification||'Time to '+r.text});scheduleSync();},openOverview:async note=>{await loadVaults();tab(true);await workspace.open(note.path,note.vault);}});
 function showPersonality(it,m,animate=true){
  if(m.personalityPending&&!m.personality){
@@ -33,7 +33,7 @@ function showPersonality(it,m,animate=true){
    if(m.webContext){
      const retry=el('button','Finish Capri’s reply');it.append(retry);
      retry.onclick=async()=>{if(busy)return;lockChat(true);try{
-       const r=await personalityCall({...m.webContext,sprite:true});m.personalityPending=false;
+       const r=await personalityCall({...m.webContext,settings:core.get(),sprite:true});m.personalityPending=false;
        Object.assign(m,{text:r.answer,blocks:r.blocks,personality:r.answer,edited:Date.now(),expression:r.expression,personalityResearch:r.personalityResearch,usage:addUsage(m.usage,r.usage),sources:[...(m.sources||[]),...(r.sources||[])]});
        retry.remove();showPersonality(it,m);showUsage(it,m.usage);await persistChat();
      }catch(e){err(e.message)}finally{lockChat(false)}};
@@ -49,12 +49,12 @@ function showPersonality(it,m,animate=true){
 function webPanel(it,m){
  it.querySelector('.web-panel')?.remove();if(!m.web&&!m.webRequest)return;const panel=el('div');panel.className='web-panel';
  if(m.web){const d=el('details');d.append(el('summary','Web research'));const content=el('div');md(content,m.web.answer);d.append(content);for(const source of m.web.sources){const a=el('a',source.title);a.href=source.url;a.target='_blank';a.rel='noopener noreferrer';d.append(a,el('br'));}if(m.web.entryPoint){const frame=el('iframe');frame.title='Google Search suggestions';frame.setAttribute('sandbox','allow-popups allow-popups-to-escape-sandbox');frame.srcdoc=m.web.entryPoint;frame.style.cssText='width:100%;height:120px;border:0';d.append(frame)}panel.append(d)}
- if(m.webRequest&&m.webContext){panel.append(el('p',m.webRequest.question),el('small','Public search: '+m.webRequest.query));const yes=el('button','Search the web'),no=el('button','Not now');panel.append(yes,no);no.onclick=async()=>{m.webRequest=null;webPanel(it,m);await persistChat()};yes.onclick=async()=>{if(busy)return;lockChat(true);chatController=new AbortController();yes.disabled=true;try{const styled=await personalityCall({...m.webContext,approvedWebQuery:m.webRequest.query},chatController.signal);m.edited=Date.now();m.text=styled.answer;m.blocks=styled.blocks;m.expression=styled.expression;delete m.personality;m.personalityResearch=styled.personalityResearch;m.citationWarning=styled.citationWarning;m.web=styled.web;m.webRequest=null;m.usage=addUsage(m.usage,styled.usage);m.sources=[...(m.sources||[]).filter(s=>!s.id.startsWith('P')),...(styled.sources||[])];it.querySelectorAll('.refs,.personality-toggle,.cite-warn').forEach(n=>n.remove());refs(it,m.sources);showPersonality(it,m);webPanel(it,m);showUsage(it,m.usage);history=conversationMemory(currentChat.messages);await persistChat()}catch(e){err(e.message);yes.disabled=false}finally{chatController=null;lockChat(false)}};}(it.querySelector('.message-menu')||it).append(panel);
+ if(m.webRequest&&m.webContext){panel.append(el('p',m.webRequest.question),el('small','Public search: '+m.webRequest.query));const yes=el('button','Search the web'),no=el('button','Not now');panel.append(yes,no);no.onclick=async()=>{m.webRequest=null;webPanel(it,m);await persistChat()};yes.onclick=async()=>{if(busy)return;lockChat(true);chatController=new AbortController();yes.disabled=true;try{const styled=await personalityCall({...m.webContext,settings:core.get(),approvedWebQuery:m.webRequest.query},chatController.signal);m.edited=Date.now();m.text=styled.answer;m.blocks=styled.blocks;m.expression=styled.expression;delete m.personality;m.personalityResearch=styled.personalityResearch;m.citationWarning=styled.citationWarning;m.web=styled.web;m.webRequest=null;m.usage=addUsage(m.usage,styled.usage);m.sources=[...(m.sources||[]).filter(s=>!s.id.startsWith('P')),...(styled.sources||[])];it.querySelectorAll('.refs,.personality-toggle,.cite-warn').forEach(n=>n.remove());refs(it,m.sources);showPersonality(it,m);webPanel(it,m);showUsage(it,m.usage);history=conversationMemory(currentChat.messages);await persistChat()}catch(e){err(e.message);yes.disabled=false}finally{chatController=null;lockChat(false)}};}(it.querySelector('.message-menu')||it).append(panel);
 }
-async function personalityCall(body,signal){const r=await fetch('/api/personality',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/x-ndjson'},body:JSON.stringify(body),signal});return readChatStream(r,e=>{if(e.stage==='web-search')terminals.open({id:'web-search',kind:'retrieval',title:'PUBLIC WEB',text:e.query,state:'reading'});if(e.stage==='personality-scan'){setExpression('focused_analysis');}if(e.stage==='quota-wait'){const it=$('msgs').querySelector('[data-pending]');if(it)setStatus(it,e.message);}});}
+async function personalityCall(body,signal=workController.signal){body={...body,settings:body.settings??core.get()};const r=await fetch('/api/personality',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/x-ndjson'},body:JSON.stringify(body),signal});return readChatStream(r,e=>{if(e.stage==='model-output')err(e.message);if(e.stage==='web-search')terminals.open({id:'web-search',kind:'retrieval',title:'PUBLIC WEB',text:e.query,state:'reading'});if(e.stage==='personality-scan'){setExpression('focused_analysis');}if(e.stage==='quota-wait'){const it=$('msgs').querySelector('[data-pending]');if(it)setStatus(it,e.message);}});}
 const workspace=mountWorkspace($("notes"),{api,ask,confirm:confirmAction,model:()=>$("model").value});
 const quick=mountQuick($('quick'),{api,confirm:confirmAction,voice:()=>{const s=core.get();return s?.enabled?s.prompts.personality:null;},move:(path,vault,version)=>workspace.move(path,vault,version),open:async(path,vault)=>{tab(true);await workspace.open(path,vault);}});
-async function api(p,b){const r=await fetch('/api/'+p,{signal:AbortSignal.timeout(90000),method:b?'POST':'GET',headers:b?{'Content-Type':'application/json'}:{},body:b?JSON.stringify(b):undefined});const d=await r.json().catch(()=>({}));if(r.status===401){signedIn=false;$('login').showModal()}if(!r.ok)throw Object.assign(new Error(d.error||'Request failed.'),{status:r.status});return d}
+async function api(p,b){const r=await fetch('/api/'+p,{signal:['capture','reminder-overview'].includes(p)?AbortSignal.any([workController.signal,AbortSignal.timeout(90000)]):AbortSignal.timeout(90000),method:b?'POST':'GET',headers:b?{'Content-Type':'application/json'}:{},body:b?JSON.stringify(b):undefined});const d=await r.json().catch(()=>({}));if(r.status===401){signedIn=false;$('login').showModal()}if(!r.ok)throw Object.assign(new Error(d.error||'Request failed.'),{status:r.status});return d}
 async function chat(body,on){
  const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/x-ndjson'},body:JSON.stringify(body),signal:chatController?.signal});
  if(r.status===401){signedIn=false;$('login').showModal()}
@@ -230,13 +230,26 @@ function applySyncInbox(){
  history=conversationMemory(merged);
 }
 
-function lockChat(value){busy=value;for(const id of ['mc','mv','mp','concise','new-chat','vault','aria-settings','overclock'])$(id).disabled=value;$('resume-chat').hidden=value||!(currentChat?.pending||currentChat?.capture);$('pause-chat').hidden=!value;if(!value){applySyncInbox();scheduleSync();}}
-$('pause-chat').onclick=()=>chatController?.abort();
+function lockChat(value){busy=value;for(const id of ['mc','mv','mp','concise','new-chat','vault','aria-settings','overclock'])$(id).disabled=value;$('resume-chat').hidden=value||!(currentChat?.pending||currentChat?.capture);$('pause-chat').hidden=false;if(!value){applySyncInbox();scheduleSync();}}
+function refreshPendingSettings(){
+ const pending=currentChat?.pending;if(!pending)return;
+ pending.body.settings=core.get();delete pending.continuation;delete pending.decision;delete pending.report;delete pending.retryAt;pending.retryCount=0;void persistChat();
+}
+async function hardStop(){
+ if(hardStopping)return;hardStopping=true;$('pause-chat').disabled=true;
+ workEpoch++;workController.abort();chatController?.abort();
+ if(currentChat){currentChat.stopped=true;if(currentChat.pending)currentChat.pending.cancelled=true;currentChat.pending=null;delete currentChat.capture;delete currentChat.delivery;delete currentChat.delayed;delete currentChat.activeBatch;currentChat.inputQueue=[];}
+ $('msgs').querySelectorAll('[data-pending],[data-delivery]').forEach(node=>node.remove());stopFlight();cool();$('resume-chat').hidden=true;
+ err('Stopping pending replies…');
+ try{await api('stop',{});err('Stopped pending chat work on this server. Queued replies cleared.');}catch(error){err('Local replies stopped. Server cancellation could not be confirmed: '+error.message);}
+ try{await persistChat();}finally{hardStopping=false;$('pause-chat').disabled=false;}
+}
+$('pause-chat').onclick=()=>void hardStop();
 async function runCapture(){
- const capture=currentChat.capture,account=owner;
+ const capture=currentChat.capture,account=owner,epoch=workEpoch;
  const intent=captureIntent(capture.message),terminal=terminals.open({id:capture.key,kind:intent.kind,title:intent.kind==='note'?'QUICK NOTE / COMPOSING':'REMINDER / SETTING TIME',text:intent.text,time:capture.due,state:'reading'});
  lockChat(true);try{const data=await api('capture',capture);if(owner!==account)return;
- const styled=await styleAction(capture.message,data.answer);data.answer=styled.answer;data.blocks=styled.blocks;
+ const styled=await styleAction(capture.message,data.answer);if(epoch!==workEpoch)return;data.answer=styled.answer;data.blocks=styled.blocks;
  const answer={id:crypto.randomUUID(),turn:capture.key,started:Date.now(),edited:Date.now(),role:'model',text:data.answer,blocks:data.blocks,usage:styled.usage,reminder:data.kind==='reminder'?{id:capture.key,text:intent.text,due:capture.due}:undefined,...(data.job?{captureJob:data.job}:{}),...(data.note?{note:data.note}:{})};
  queueReply(answer,false);delete currentChat.capture;await persistChat();
  terminal.update({state:data.kind==='note'?'queued':'saved',text:data.answer,time:capture.due});if(data.archiveWarning)err('Reminder saved. Overview sync pending: '+data.archiveWarning);
@@ -259,9 +272,10 @@ async function localReply(text,extras={}){const m={id:crypto.randomUUID(),turn:c
 async function styleAction(message,answer){try{return await personalityCall({action:'rewrite',message,answer,history:conversationMemory(currentChat.messages),settings:{...core.get(),memory:false,web:'off'},sprite:true,concise:true,operational:true});}catch{return {answer:answer.startsWith('Today')?'I couldn’t read back your schedule just now. Your reminders are still saved.':answer};}}
 async function showTodayReminders(){const r=await api('reminder-overview',{timezone:Intl.DateTimeFormat().resolvedOptions().timeZone});terminals.open({id:'today-reminders',kind:'reminder',title:'REMINDERS / LIVE SERVER',text:r.answer,state:'read'});const styled=await styleAction('What reminders do I have today?',r.answer);await localReply(styled.answer,{blocks:styled.blocks,note:r.note,reminder:{overview:true},usage:styled.usage});}
 async function runPending(){
- if(!currentChat?.pending)return;delete currentChat.pending.retryAt;chatController=new AbortController();lockChat(true);err('');
+ if(!currentChat?.pending)return;if(workController.signal.aborted)workController=new AbortController();delete currentChat.pending.retryAt;chatController=new AbortController();lockChat(true);err('');
  const pending=currentChat.pending,it=$('msgs').querySelector('[data-pending]')||msg('model','');it.dataset.pending='true';clearScan();setStatus(it,pending.continuation?'Continuing research…':'Thinking…');first=true;
- const body=pending.body,signal=chatController.signal;
+ const body=pending.body,signal=AbortSignal.any([chatController.signal,workController.signal]);
+ if(JSON.stringify(body.settings)!==JSON.stringify(core.get())){body.settings=core.get();delete pending.continuation;delete pending.decision;delete pending.report;}
  showUsage(it,pending.usage||{totalTokenCount:estimateQuestion(body.message,body.history,body.files),estimated:true});
  try{
    if(!pending.decision){
@@ -295,6 +309,7 @@ async function runPending(){
      extraSources=(report.sources||[]).filter(s=>s.cited!==false);markUsed(report.sources||[]);
      followupCache=report.followupCache??null;usage=addUsage(addUsage(first.usage,report.usage),reply.usage);
    }
+   signal.throwIfAborted();
    if(typeof reply.answer!=='string'||!reply.answer.trim())throw Error('Capri returned an empty reply.');
    const turn=currentChat.messages.find(m=>m.id===pending.turnId)||currentChat.messages.at(-1);
    const saved={id:crypto.randomUUID(),turn:turn.id,started:Date.now(),sentAt:Date.now(),edited:Date.now(),role:'model',
@@ -306,13 +321,13 @@ async function runPending(){
    // turn sees the original user messages and all new messages in order.
    if(first.route==='reply'&&currentChat.inputQueue?.length){it.remove();await persistChat();return;}
    it.remove();queueReply(saved,first.route==='reply');cool();await persistChat();
- }catch(x){const transient=x.name!=='AbortError'&&([429,502,503,504].includes(x.status)||/quota|limit|timed out|connection|fetch/i.test(x.message));pending.retryCount=(pending.retryCount||0)+1;if(transient&&pending.retryCount<=5){pending.retryAt=Date.now()+Math.min(180000,15000*2**(pending.retryCount-1));setStatus(it,'Retrying automatically');err('Capri is waiting for the model and will retry automatically.');}else{delete pending.retryAt;err((x.name==='AbortError'?'Paused by you.':x.message)+' Your progress is saved. Use Resume reply to continue.');}await persistChat();cool();}
+ }catch(x){if(pending.cancelled||signal.aborted){delete pending.retryAt;if(!pending.cancelled)err('Paused by you. Use Resume reply to continue.');return;}const transient=![400,413].includes(x.status)&&x.name!=='AbortError'&&([429,502,503,504].includes(x.status)||/quota|limit|timed out|connection|fetch/i.test(x.message));pending.retryCount=(pending.retryCount||0)+1;if(transient&&pending.retryCount<=5){pending.retryAt=Date.now()+Math.min(180000,15000*2**(pending.retryCount-1));setStatus(it,'Retrying automatically');err('Capri is waiting for the model and will retry automatically.');}else{delete pending.retryAt;err((x.name==='AbortError'?'Paused by you.':x.message)+' Your progress is saved. Use Resume reply to continue.');}await persistChat();cool();}
  finally{chatController=null;lockChat(false);$('q').focus();}
 }
-async function processBatch(batch){let text=batch.map(x=>x.replyTo?'[Reply to Capri: '+x.replyTo.text+']\n'+x.text:x.text).join('\n\n[Next message]\n');
+async function processBatch(batch){const epoch=workEpoch;let text=batch.map(x=>x.replyTo?'[Reply to Capri: '+x.replyTo.text+']\n'+x.text:x.text).join('\n\n[Next message]\n');
  lockChat(true);
  try{
- currentChat??=blankChat();const context=await timeline.context();history=conversationMemory(turnHistory(mergeMessages(context,currentChat.messages),batch,currentChat.inputQueue));
+ currentChat??=blankChat();const context=await timeline.context();if(epoch!==workEpoch)throw new DOMException('Stopped by you.','AbortError');history=conversationMemory(turnHistory(mergeMessages(context,currentChat.messages),batch,currentChat.inputQueue));
  const sent=batch.flatMap(x=>x.files);nodes.clear();dirs.clear();boxes.clear();slog.replaceChildren();order=0;trail.replaceChildren();$('cur').textContent='';
  currentChat.mode=$('mode').value;currentChat.vault=$('vault').value;currentChat.model=$('model').value;
  if(!sent.length&&currentChat.reminderDraft&&!captureIntent(text)){
@@ -321,27 +336,28 @@ async function processBatch(batch){let text=batch.map(x=>x.replyTo?'[Reply to Ca
  }
  if(!sent.length&&!captureIntent(text)&&reminderQuery(text)==='today'){await showTodayReminders();return;}
  if(!sent.length&&captureIntent(text)){
-  const capture=await agenda.capture(text,batch.at(-1).id);
+  const capture=await agenda.capture(text,batch.at(-1).id);if(epoch!==workEpoch)throw new DOMException('Stopped by you.','AbortError');
   if(capture.needsTime){currentChat.reminderDraft=capture;terminals.open({id:capture.key,kind:'reminder',title:'REMINDER / CHOOSE TIME',text:captureIntent(text).text,state:'waiting'});await localReply('When should I remind you? Nothing is scheduled yet.');if(!captureIntent(text).followup)return;}
   if(capture.cancelled){const answer='No reminder set. Tell me when you’re ready.';currentChat.messages.push({role:'model',text:answer});msg('model',answer);await persistChat();return;}
   if(!capture.needsTime){currentChat.capture=capture;await persistChat();await runCapture();}
   const followup=captureIntent(text).followup;if(!followup)return;text=followup;
  }
+ if(epoch!==workEpoch)throw new DOMException('Stopped by you.','AbortError');
  const overview=[];const olderReminders=reminderQuery(text)==='older';
  const retrying=/\b(again|retry)\b/i.test(text)&&/\b(mir|age|search|do it|try)\b/i.test(text);const priorQuestion=[...history].reverse().find(m=>m.role==='user'&&!/\b(again|retry)\b/i.test(m.text))?.text;
  currentChat.pending={...(olderReminders?{decision:{route:'vault'}}:{}),turnId:batch.at(-1).id,body:{timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,message:retrying&&priorQuestion?priorQuestion:text,model:$('model').value,mode:olderReminders?'vault':$('mode').value,vault:olderReminders?'all':$('vault').value||'all',history,followupCache:[...currentChat.messages].reverse().find(m=>m.role==='model')?.followupCache??null,concise:$('concise').checked,depth:$('concise').checked?'age':'mir',settings:core.get(),pendingReplies:currentChat.delayed?.map(x=>x.message.text),overview,files:sent.map(({mime,data})=>({mime,data}))}}
  await persistChat();await runPending();
- }catch(e){err(e.message);throw e;}finally{lockChat(false);}}
+ }catch(e){if(e.name!=='AbortError')err(e.message);throw e;}finally{lockChat(false);}}
 
 let queueWorking=false,queueRetryAt=0;
 async function pumpConversation(){
- if(queueWorking||busy||booting||!signedIn||!currentChat||Date.now()<queueRetryAt)return;
+ if(queueWorking||hardStopping||busy||booting||!signedIn||!currentChat||currentChat.stopped||Date.now()<queueRetryAt)return;
  queueWorking=true;const account=owner;
  try{
   if(currentChat.pending?.retryAt&&currentChat.pending.retryAt<=Date.now()){delete currentChat.pending.retryAt;await runPending();return;}
   // Migrate old minute-delayed replies. New input supersedes any unseen draft.
   if(currentChat.delayed?.length){if(!currentChat.inputQueue?.length&&!currentChat.delivery){const messages=currentChat.delayed.flatMap(({message})=>(message.blocks?.length?message.blocks:splitReply(message.text)).map((text,index)=>({...message,id:index?crypto.randomUUID():message.id,text,blocks:[text]})));currentChat.delivery={messages,due:Date.now()};}delete currentChat.delayed;await persistChat();}
-  while(currentChat.inputQueue?.length&&!currentChat.pending&&!currentChat.capture){
+  while(!currentChat.stopped&&currentChat.inputQueue?.length&&!currentChat.pending&&!currentChat.capture){
    // Keep completed actions/research; only unseen casual text is superseded.
    if(currentChat.delivery){currentChat.delivery.messages=currentChat.delivery.messages.filter(m=>m.deliveryInterruptible===false);if(!currentChat.delivery.messages.length)delete currentChat.delivery;}
    syncDeliveryStatus();
@@ -356,11 +372,12 @@ async function pumpConversation(){
    history=conversationMemory(currentChat.messages);await persistChat();
   }
   syncDeliveryStatus();
- }catch(e){err(e.message);queueRetryAt=Date.now()+30000;if(owner===account&&currentChat.activeBatch&&!currentChat.pending&&!currentChat.capture){currentChat.inputQueue=[...currentChat.activeBatch,...(currentChat.inputQueue||[])];delete currentChat.activeBatch;await persistChat();}}finally{queueWorking=false;}
+ }catch(e){if(e.name==='AbortError'||currentChat?.stopped)return;err(e.message);queueRetryAt=Date.now()+30000;if(owner===account&&currentChat.activeBatch&&!currentChat.pending&&!currentChat.capture){currentChat.inputQueue=[...currentChat.activeBatch,...(currentChat.inputQueue||[])];delete currentChat.activeBatch;await persistChat();}}finally{queueWorking=false;}
 }
 function syncDeliveryStatus(){let it=$('msgs').querySelector('[data-delivery]');if(currentChat?.delivery?.messages.length){if(!it){it=msg('model','');it.dataset.delivery='true';setStatus(it,'Capri is typing');}}else it?.remove();}
 setInterval(()=>void pumpConversation(),250);
 $('f').onsubmit=async e=>{e.preventDefault();if(!signedIn){$('login').showModal();return;}
+ if(workController.signal.aborted)workController=new AbortController();if(currentChat)currentChat.stopped=false;
  const text=$('q').value.trim()||(files.length?'Read this attachment.':'');if(!text)return;
  if(text.length+(replyTarget?.text.length||0)>3500){err('Please keep each message under 3,500 characters.');return;}
  currentChat??=blankChat();const id=crypto.randomUUID(),now=Date.now(),sent=files;files=[];renderAtt();$('q').value='';resizeComposer();

@@ -1,3 +1,4 @@
+import {checkRequest} from './request-control.js';
 import {messageBlocks,BLOCK_SEPARATOR} from '../public/message-blocks.js';
 import {expressions,expressionOf} from '../public/expression.js';
 const deliveryInstruction=' Write separate conversational beats as separate entries in the messages array. Use one bubble for a simple answer; add bubbles only for distinct points the user needs. Never pad a reply to meet a bubble count. Keep a related Markdown list, table or code block together. The interface delivers entries sequentially with short delays based on each entry’s length; never choose a delivery delay yourself. Never include sprite labels or stage directions in spoken text. ';
@@ -13,7 +14,7 @@ const refs=s=>new Set([...s.matchAll(REF)].flatMap(m=>m[1].match(/[SP]\d+/g)));
 const stripRefs=t=>typeof t==='string'?t.replace(/ ?\[(?:[SP]\d+)(?:\s*[,;]\s*[SP]\d+)*\]/g,''):t;
 const clean=m=>({...m,text:stripRefs(m.text)});
 export async function personalize({body,generate,search,webSearch,groundedWeb=null,onScan=()=>{}}){
- const safeWebSearch=async query=>{try{return await webSearch(query);}catch(e){return {failed:true,error:String(e.message||'Search unavailable').slice(0,500),answer:'The web search attempt failed. No web facts were retrieved. Reason: '+String(e.message||'Search unavailable').slice(0,500),sources:[]};}};
+ const safeWebSearch=async query=>{try{return await webSearch(query);}catch(e){checkRequest();return {failed:true,error:String(e.message||'Search unavailable').slice(0,500),answer:'The web search attempt failed. No web facts were retrieved. Reason: '+String(e.message||'Search unavailable').slice(0,500),sources:[]};}};
  const settings=settingsOf(body.settings);if(!settings.enabled)return {answer:body.answer||'',sources:[]};
  if(!['ack','rewrite','turn'].includes(body.action)||typeof body.message!=='string'||body.message.length>4000||typeof (body.answer??'')!=='string'||(body.answer?.length||0)>100000||!Array.isArray(body.history??[])||JSON.stringify(body.history??[]).length>180000)throw Object.assign(new Error('Invalid personality request.'),{status:400});
  if(JSON.stringify(body.overview??[]).length>100000)throw Object.assign(new Error('Conversation overview is too large.'),{status:400});

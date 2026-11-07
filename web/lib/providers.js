@@ -1,3 +1,4 @@
+import {requestFetch as fetch,checkRequest} from './request-control.js';
 async function checkGeminiResponse(response,model) {
   if(!response.ok) {
     let reasons=[];try{const errorBody=await response.json();reasons=errorBody.error?.details?.map(d=>d.reason)??[];}catch{}

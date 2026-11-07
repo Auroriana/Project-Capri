@@ -8,7 +8,7 @@ test('a reaction gets a single speaking call with owner calibration and the prev
  let calls=0;
  const reply=await personalize({body:{action:'turn',message:'How cheeky',history},generate:async req=>{
    calls++;const data=JSON.parse(req.contents[0].parts[0].text);
-   assert.equal(data.previousAssistantReply,'Hey!');
+   assert.equal(data.conversation.at(-1).text,'Hey!');assert.equal(data.previousAssistantReply,undefined);
    assert.ok(data.personalityPassages.some(p=>p.kind==='owner-calibration'));
    return {answer:JSON.stringify({route:'reply',answer:'Who, me?',expression:'amused_interest'})};
  }});

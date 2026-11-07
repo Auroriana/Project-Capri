@@ -4,7 +4,7 @@ import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import {defaults,coreModels} from '../lib/core-settings.js';
-let stopped=0,closed=0,hold=true;const requests=[];
+let stopped=0,closed=0,hold=true,failStatus=0;const requests=[];
 const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://localhost');
  if(url.pathname.startsWith('/api/')){
@@ -18,7 +18,7 @@ const server=http.createServer(async(req,res)=>{
  case '/api/welcome':data={lines:['Ready.']};break;
  case '/api/agenda':data={reminders:[]};break;
  case '/api/stop':stopped++;data={stopped:1};break;
- case '/api/personality':requests.push(body);if(hold){res.setHeader('Content-Type','application/x-ndjson');res.write(JSON.stringify({type:'heartbeat'})+'\n');res.on('close',()=>closed++);return;}data={route:'reply',answer:'Fresh reply.'};break;
+ case '/api/personality':requests.push(body);if(failStatus){res.statusCode=failStatus;failStatus=0;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({error:'Fixture rejected request'}));return;}if(hold){res.setHeader('Content-Type','application/x-ndjson');res.write(JSON.stringify({type:'heartbeat'})+'\n');res.on('close',()=>closed++);return;}data={route:'reply',answer:'Fresh reply.'};break;
  default:data={vaults:[],notes:[]};
  }
  res.setHeader('Content-Type','application/json');res.end(JSON.stringify(data));return;
@@ -37,5 +37,6 @@ try{
  await page.locator('#aria-settings').click();await page.locator('[name=personality]').selectOption('gemini-3.5-flash-lite');await page.locator('[data-all-model]').click();await page.getByRole('button',{name:'Save settings',exact:true}).click();
  hold=false;await send('New request');await page.getByText('Fresh reply.',{exact:true}).waitFor();assert.equal(requests.length,2);for(const k of ['router','reasoning','analyzing','personality'])assert.equal(requests[1].settings[k],'gemini-3.5-flash-lite');
  await page.reload();await page.locator('#capri-loading').waitFor({state:'hidden'});await page.waitForTimeout(600);assert.equal(requests.length,2);assert.deepEqual(errors,[]);
+ failStatus=413;await send('Oversized fixture');await page.getByText('That request was too big for the model.',{exact:false}).waitFor();assert.equal(await page.locator('#err').textContent(),'');assert.equal(await page.locator('#resume-chat').isVisible(),true);await page.locator('#resume-chat').click();await page.getByText('Fresh reply.',{exact:true}).last().waitFor();assert.equal(requests.length,4);assert.deepEqual(errors,[]);
  console.log('PASS: hard stop disconnects active stream, clears queued work, prevents reload retries, and all-stage settings apply to the next turn.');
 }finally{await browser?.close();server.closeAllConnections();await new Promise(r=>server.close(r));}

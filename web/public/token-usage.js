@@ -20,7 +20,7 @@ export function usageTitle(usage){return (usage.estimated?'Includes estimated to
 // Numeric diagnostics only: never retain prompt text, queries, document titles or keys.
 export function promptSizes(request){
   const size=v=>estimateText(typeof v==='string'?v:JSON.stringify(v??''));
-  const sizes={system:size((request.systemInstruction?.parts??[]).map(p=>p.text||'').join('\n')),history:0,retrieved:0,overview:0,draft:0};
+  const sizes={system:size((request.systemInstruction?.parts??[]).map(p=>p.text||'').join('\n')),history:0,retrieved:0,personality:0,overview:0,draft:0};
   const contents=request.contents??[];
   for(const c of contents.slice(0,-1))sizes.history+=size(c.parts?.map(p=>p.text||'').join('\n'));
   for(const p of contents.at(-1)?.parts??[]){
@@ -29,6 +29,7 @@ export function promptSizes(request){
     if(!data||typeof data!=='object')continue;
     for(const key of ['conversationMemory','conversation'])if(data[key])sizes.history+=size(data[key]);
     for(const key of ['evidence','memories','web'])if(data[key])sizes.retrieved+=size(data[key]);
+    if(data.personalityPassages)sizes.personality+=size(data.personalityPassages);
     if(data.recentChats)sizes.overview+=size(data.recentChats);
     if(data.original)sizes.draft+=size(data.original);
   }
@@ -44,6 +45,9 @@ export function callUsage(usage,request,answer,{model,role,phase,latencyMs}){
 }
 export function usageDetails(usage){
   const lines=[usageTitle(usage)];
+  const totals=new Map();for(const c of usage.calls??[]){const row=totals.get(c.model)||{input:0,output:0,calls:0};row.input+=c.promptTokenCount||0;row.output+=c.candidatesTokenCount||0;row.calls++;totals.set(c.model,row);}
+  for(const [model,row] of totals)lines.push((model.startsWith('nim:')?'NVIDIA NIM · ':'')+model+': '+row.calls+' calls · Input '+row.input+' · Output '+row.output);
+  lines.push('Per-reply usage only; not your provider account balance or daily quota.');
   for(const [i,c] of (usage.calls??[]).entries()){
     lines.push(`${i+1}. ${c.role} / ${c.phase} · ${c.model}: ${c.totalTokenCount} tokens${c.estimated?' (estimate)':''} · ${c.latencyMs} ms`, '   '+usageTitle(c));
     if(c.promptEstimates)lines.push('   Approximate prompt tokens (UTF-8 bytes / 4): '+Object.entries(c.promptEstimates).map(([k,v])=>`${k} ${v}`).join(' · '));

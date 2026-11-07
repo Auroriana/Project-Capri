@@ -1,3 +1,4 @@
+import {requestErrorText} from '/request-error.js';
 import {mountNotifications} from '/notifications.js';
 import {spokenText,reminderPresentation} from '/spoken-text.js';
 import {createTimeline,mergeMessages} from '/timeline.js';
@@ -321,7 +322,12 @@ async function runPending(){
    // turn sees the original user messages and all new messages in order.
    if(first.route==='reply'&&currentChat.inputQueue?.length){it.remove();await persistChat();return;}
    it.remove();queueReply(saved,first.route==='reply');cool();await persistChat();
- }catch(x){if(pending.cancelled||signal.aborted){delete pending.retryAt;if(!pending.cancelled)err('Paused by you. Use Resume reply to continue.');return;}const transient=![400,413].includes(x.status)&&x.name!=='AbortError'&&([429,502,503,504].includes(x.status)||/quota|limit|timed out|connection|fetch/i.test(x.message));pending.retryCount=(pending.retryCount||0)+1;if(transient&&pending.retryCount<=5){pending.retryAt=Date.now()+Math.min(180000,15000*2**(pending.retryCount-1));setStatus(it,'Retrying automatically');err('Capri is waiting for the model and will retry automatically.');}else{delete pending.retryAt;err((x.name==='AbortError'?'Paused by you.':x.message)+' Your progress is saved. Use Resume reply to continue.');}await persistChat();cool();}
+ }catch(x){if(pending.cancelled||signal.aborted){delete pending.retryAt;if(!pending.cancelled)err('Paused by you. Use Resume reply to continue.');return;}const transient=![400,413].includes(x.status)&&x.name!=='AbortError'&&([429,502,503,504].includes(x.status)||/quota|limit|timed out|connection|fetch/i.test(x.message));pending.retryCount=(pending.retryCount||0)+1;const retrying=transient&&pending.retryCount<=5;if(retrying)pending.retryAt=Date.now()+Math.min(180000,15000*2**(pending.retryCount-1));else delete pending.retryAt;
+ const text=requestErrorText(x.status,retrying);it.remove();err('');
+ let failure=currentChat.messages.find(m=>m.id===pending.failureId);
+ if(!failure){failure={id:crypto.randomUUID(),turn:pending.turnId,role:'model',event:'request.error',started:Date.now(),text};pending.failureId=failure.id;currentChat.messages.push(failure);const node=msg('model',text);messageTools(node,failure);}
+ else{failure.text=text;failure.edited=Date.now();const node=[...$('msgs').children].find(n=>n.dataset.message===failure.id);if(node)showPersonality(node,failure);}
+ await persistChat();cool();}
  finally{chatController=null;lockChat(false);$('q').focus();}
 }
 async function processBatch(batch){const epoch=workEpoch;let text=batch.map(x=>x.replyTo?'[Reply to Capri: '+x.replyTo.text+']\n'+x.text:x.text).join('\n\n[Next message]\n');

@@ -4,7 +4,7 @@ import {generateWithOverflow} from '../lib/provider-routing.js';
 import {withRequest,registerRequest,stopRequests,requestFetch as fetch,checkRequest} from '../lib/request-control.js';
 import {withProviderCredentials,saveProviderCredential} from '../lib/provider-credentials.js';
 import {createCouncil,councilStep} from '../lib/model-council.js';
-import {discoverModels,externalModels,isExternal,externalGenerate,ready} from '../lib/multi-provider.js';
+import {discoverModels,externalModels,isExternal,externalGenerate,providerOf,ready} from '../lib/multi-provider.js';
 import {timelineRoutes} from '../lib/timeline.js';
 import {completeGeneration} from '../lib/generation-recovery.js';
 import {selectPassages} from '../lib/retrieval-selection.js';
@@ -121,9 +121,10 @@ async function handleRequest(req,res,generationController){
     if(req.method==='POST'&&['/api/chat','/api/personality'].includes(route)){checkRequest();unregister=registerRequest(user.id,generationController);}
     let retrievalUsage={rerankCalls:0,rerankFallbacks:0,rerankInputTokens:0,rerankMs:0};
     const rank=createReranker({onUsage:event=>{retrievalUsage.rerankCalls++;retrievalUsage.rerankMs+=event.latencyMs;retrievalUsage.rerankFallbacks+=Number(event.fallback);retrievalUsage.rerankInputTokens+=event.inputTokens??event.estimatedInput??0;if(streaming)emit('progress',{stage:'reranking',model:event.model,fallback:event.fallback});}});
+    const modelLabel=id=>providerOf(id).toUpperCase()+' / '+(id.includes(':')?id.slice(id.indexOf(':')+1):id);
     const externalStage=(id,request,settings)=>generateWithOverflow(id,request,{
-      generate:(model,input)=>externalGenerate(model,input,{signal:generationController.signal}),
-      onFallback:()=>{if(streaming)emit('progress',{stage:'model-output',message:'Using Gemini for this larger stage, with the full context preserved.'});},
+      generate:(model,input)=>externalGenerate(model,input,{signal:generationController.signal,onAnswerStarted:()=>{if(streaming)emit('progress',{stage:'model-output',message:modelLabel(model)+' started typing.'});}}),
+      onFallback:reason=>{if(streaming)emit('progress',{stage:'model-output',message:reason==='budget'?'Using Gemini for this larger stage, with the full context preserved.':providerOf(id).toUpperCase()+' is slow or unreachable right now. Switching this step to Gemini; the full context is preserved.'});},
       fallback:process.env.GEMINI_API_KEY&&process.env.GEMINI_FREE_TIER_CONFIRMED==='true'?async input=>{
         checkRequest();const model=settings.reasoning?.startsWith('gemini-')?settings.reasoning:PLANNER_MODEL;activeModel=model;input=withRuntime(input,{owner:user.id,model,phase:activePhase,settings,fallbackFrom:id});
         const ok=await sb('/rest/v1/rpc/aria_reserve',token,{p_model:model,p_tokens:estimateText(JSON.stringify(input))+(input.generationConfig?.maxOutputTokens||4096)});

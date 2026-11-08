@@ -1,3 +1,4 @@
+import {isExternal} from './multi-provider.js';
 // Keep full evidence intact. Oversized Groq stages move to the configured Gemini
 // path; they are never shortened or split into lossy summaries.
 export function exceedsGroqBudget(id,request){
@@ -7,9 +8,26 @@ export function exceedsGroqBudget(id,request){
  // Conservative byte estimate, including output room and protocol overhead.
  return Math.ceil(Buffer.byteLength(JSON.stringify(request))/3)+(request.generationConfig?.maxOutputTokens||4096)+256>budget;
 }
+// NIM (and other hosted OpenAI-compatible providers) can cold-start, queue, or
+// drop requests without answering. Those transient upstream failures move to
+// the Gemini fallback with the context preserved. Rate limits (429) are not
+// included: the browser already backs off, and silently spending the scarce
+// Gemini daily quota would hide the real problem.
+const failoverUpstream=error=>!!error&&(['TimeoutError','AbortError'].includes(error.name)||error instanceof TypeError||[413,502,503,504].includes(error.status));
 export async function generateWithOverflow(id,request,{generate,fallback,onFallback=()=>{}}){
- const overflow=async()=>{if(!fallback)throw Object.assign(Error('This stage exceeds the Groq request budget. Choose Gemini for all stages, or configure the Gemini overflow model. Context was preserved.'),{status:413});onFallback();return fallback(request);};
- if(exceedsGroqBudget(id,request))return overflow();
+ const overflow=async(original,reason)=>{
+  if(!fallback){
+   // Without a fallback the caller must see the real upstream failure.
+   if(original)throw original;
+   throw Object.assign(Error('This stage exceeds the Groq request budget. Choose Gemini for all stages, or configure the Gemini overflow model. Context was preserved.'),{status:413});
+  }
+  onFallback(reason);return fallback(request);
+ };
+ if(exceedsGroqBudget(id,request))return overflow(null,'budget');
  try{return {...await generate(id,request),modelUsed:id};}
- catch(error){if(!id.startsWith('groq:')||error.status!==413)throw error;return overflow();}
+ catch(error){
+  if(id.startsWith('groq:')&&error.status===413)return overflow(null,'budget');
+  if(isExternal(id)&&failoverUpstream(error))return overflow(error,'failover');
+  throw error;
+ }
 }

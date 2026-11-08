@@ -109,7 +109,7 @@ html,body{height:100%;height:100dvh;background:#020403;color:#d5f6e1}
 #msgs .message-menu .note-chip{position:static;display:inline-flex;padding:5px;margin:3px 0}
 #msgs .m:has(.message-menu .note-chip)>.md{padding-bottom:9px}
 .token-breakdown pre{white-space:pre-wrap;font:11px/1.5 ui-monospace,monospace;max-height:250px;overflow:auto}
-#notification-toggle{font-size:10px;padding:3px 6px;background:none;border:1px solid #285537;border-radius:6px}
+#notification-toggle{font-size:10px;padding:3px 6px;background:none;border:1px solid #285537;border-radius:6px}#reminders-toggle{font-size:10px;padding:3px 6px;background:none;border:1px solid #285537;border-radius:6px}
 .chat-options{flex-wrap:wrap}
 #msgs .m.user .md{border-radius:16px 16px 5px 16px}#chat .note-chip svg{width:13px;height:13px;stroke-width:1.5}
 /* Connected DM groups: round outer corners, tight joins on the sender side. */

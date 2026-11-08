@@ -11,7 +11,7 @@ export function mountAgenda({api,owner,busy,ready=()=>true,model,save,open,reply
  let checking=false,seen=new Set(),account='';
  const key=()=> 'capri.reminder-alerts.'+owner();
  const dialog=document.createElement('dialog');dialog.className='agenda-dialog';document.body.append(dialog);
- const button=document.createElement('button');button.type='button';button.textContent='Reminders';button.onclick=()=>show().catch(e=>onError(e.message));document.querySelector('.chat-options')?.append(button);
+ const button=document.createElement('button');button.type='button';button.id='reminders-toggle';button.textContent='Reminders';button.onclick=()=>show().catch(e=>onError(e.message));document.querySelector('.chat-options')?.append(button);
  async function complete(id){const result=await api('reminder-complete',{key:id,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone});if(!result.ok)throw Error('Could not complete reminder.');seen.add(id);await onCompleted(id);return result;}
  async function show(){const who=owner();const {reminders}=await api('agenda');if(who!==owner())return;dialog.replaceChildren();const heading=document.createElement('h2');heading.textContent='Reminders';dialog.append(heading);
  if(!reminders.length){const empty=document.createElement('p');empty.textContent='All caught up. No outstanding reminders.';dialog.append(empty);}

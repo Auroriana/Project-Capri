@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {externalGenerate,providers} from '../lib/multi-provider.js';
-import {generateWithOverflow} from '../lib/provider-routing.js';
+import {externalGenerate,providers,externalModels,freeAllowed,ready} from '../lib/multi-provider.js';
+import {generateWithOverflow,failoverUpstream} from '../lib/provider-routing.js';
 
 const request={systemInstruction:{parts:[{text:'system'}]},contents:[{role:'user',parts:[{text:'hello'}]}],generationConfig:{maxOutputTokens:100}};
 const keys=()=>{const snapshot={};for(const provider of ['groq','nim','deepseek','openrouter','zai']){const k=providers[provider].key;snapshot[k]=process.env[k];process.env[k]='fixture';}snapshot.CAPRI_FREE_ONLY=process.env.CAPRI_FREE_ONLY;process.env.CAPRI_FREE_ONLY='false';return snapshot;};
@@ -107,4 +107,69 @@ test('groq oversized stages still overflow by budget, not by failure',async()=>{
  });
  assert.equal(fallbackUsed,1);
  assert.equal(result.answer,'g');
+});
+
+test('the OpenRouter free GLM passes free-only gating with just the key',async t=>{
+ const snapshot=keys();t.after(()=>restore(snapshot));
+ process.env.CAPRI_FREE_ONLY='true';
+ assert.ok(externalModels.some(m=>m.id==='openrouter:z-ai/glm-5.3-flash:free'));
+ assert.equal(freeAllowed('openrouter:z-ai/glm-5.3-flash:free'),true);
+ const hadKey=process.env.OPENROUTER_API_KEY;
+ if(hadKey==='fixture')delete process.env.OPENROUTER_API_KEY;
+ assert.equal(ready('openrouter:z-ai/glm-5.3-flash:free'),false);
+ process.env.OPENROUTER_API_KEY='fixture';
+ assert.equal(ready('openrouter:z-ai/glm-5.3-flash:free'),true);
+ assert.equal(freeAllowed('openrouter:z-ai/glm-5.3-flash'),false);
+});
+
+test('a shared free-endpoint 429 overflows only when the stage opts in',async()=>{
+ let fallbackUsed=0;
+ const failing={generate:async()=>{throw Object.assign(new Error('OpenRouter / z-ai/glm-5.3-flash:free failed (HTTP 429).'),{status:429});},fallback:async()=>{fallbackUsed++;return {answer:'x',truncated:false};}};
+ await assert.rejects(generateWithOverflow('openrouter:z-ai/glm-5.3-flash:free',request,{...failing}),{status:429});
+ assert.equal(fallbackUsed,0);
+ const result=await generateWithOverflow('openrouter:z-ai/glm-5.3-flash:free',request,{...failing,failoverOn:error=>failoverUpstream(error)||error.status===429||error.status===402});
+ assert.equal(result.answer,'x');
+ assert.equal(fallbackUsed,1);
+});
+
+test('the free GLM chain runs OpenRouter, then NIM, then Gemini',async()=>{
+ const hops=[];let nimCalls=0,geminiCalls=0;
+ const outer=generateWithOverflow('openrouter:z-ai/glm-5.3-flash:free',request,{
+  generate:async(model,input)=>{
+   if(model.startsWith('openrouter:'))throw Object.assign(new Error('OpenRouter / z-ai/glm-5.3-flash:free failed (HTTP 429).'),{status:429});
+   nimCalls++;return {answer:'from nim',truncated:false,usage:null};
+  },
+  failoverOn:error=>failoverUpstream(error)||error.status===429||error.status===402,
+  onFallback:reason=>hops.push('outer:'+reason),
+  fallback:async input=>generateWithOverflow('nim:z-ai/glm-5.3-flash',input,{
+   generate:async(model,input)=>{nimCalls++;return {answer:'from nim',truncated:false,usage:null};},
+   onFallback:reason=>hops.push('nim:'+reason),
+   fallback:async input=>{geminiCalls++;return {answer:'from gemini',truncated:false};}
+  })
+ });
+ const result=await outer;
+ assert.equal(result.answer,'from nim');
+ assert.equal(result.modelUsed,'nim:z-ai/glm-5.3-flash');
+ assert.deepEqual(hops,['outer:failover']);
+ assert.equal(nimCalls,1);
+ assert.equal(geminiCalls,0);
+ // Both free hops down: only then is the scarce Gemini quota spent.
+ let secondGemini=0;
+ const exhausted=await generateWithOverflow('openrouter:z-ai/glm-5.3-flash:free',request,{
+  generate:async model=>{
+   if(model.startsWith('openrouter:'))throw Object.assign(new Error('OpenRouter / z-ai/glm-5.3-flash:free failed (HTTP 429).'),{status:429});
+   throw Object.assign(new Error('NIM / z-ai/glm-5.3-flash produced no output within 45 seconds.'),{status:504});
+  },
+  failoverOn:error=>failoverUpstream(error)||error.status===429||error.status===402,
+  onFallback:reason=>hops.push('outer:'+reason),
+  fallback:async input=>generateWithOverflow('nim:z-ai/glm-5.3-flash',input,{
+   generate:async()=>{throw Object.assign(new Error('NIM / z-ai/glm-5.3-flash produced no output within 45 seconds.'),{status:504});},
+   onFallback:reason=>hops.push('nim:'+reason),
+   fallback:async input=>{secondGemini++;return {answer:'from gemini',truncated:false,modelUsed:'gemini-3.5-flash-lite'};}
+  })
+ });
+ assert.equal(exhausted.answer,'from gemini');
+ assert.equal(exhausted.modelUsed,'gemini-3.5-flash-lite');
+ assert.deepEqual(hops,['outer:failover','outer:failover','nim:failover']);
+ assert.equal(secondGemini,1);
 });

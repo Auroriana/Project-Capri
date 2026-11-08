@@ -10,6 +10,7 @@ import {bubbleDelay,turnHistory} from '/conversation-flow.js';
 import {scheduledTime} from '/capture.js';
 import {mountAgenda} from '/agenda.js';
 import {captureIntent,reminderQuery} from '/capture.js';
+import {recordVoice,snapshotCamera,snapshotScreen,voiceSupported,captureSupported} from '/media-capture.js';
 import {queueJump,clearScan,showScan,stopFlight} from '/scan-path.js';
 import {readChatStream} from '/chat-stream.js';
 import {setExpression} from '/expression.js';
@@ -431,7 +432,45 @@ $('overclock').onclick=()=>{$('concise').checked=!$('concise').checked;$('concis
 $('concise').onchange=()=>{$('overclock').setAttribute('aria-pressed',String(!$('concise').checked));try{localStorage.setItem('aria.mirage',$('concise').checked?'age':'mir');}catch{}};
 const app=$('app');try{const s=localStorage.getItem('aria.history.collapsed');if(s===null?matchMedia('(max-width:860px)').matches:s==='true')app.classList.add('hc')}catch{}
 $('ht').onclick=()=>{const c=app.classList.toggle('hc');try{localStorage.setItem('aria.history.collapsed',String(c))}catch{}};
-$('voice').setAttribute('aria-disabled','true');
+// Voice messages: record in the browser, transcribe on a free server endpoint
+// (Groq whisper-large-v3-turbo, NIM Nano Omni fallback), then drop the
+// transcript into the composer so it can be reviewed or edited before sending.
+let recording=null;
+async function handleVoiceStop(){
+ const active=recording;recording=null;
+ $('voice').classList.remove('rec');$('voice').setAttribute('aria-pressed','false');$('voice').title='Voice message';
+ try{
+  err('Transcribing…');
+  const {mime,data}=await active.stop();
+  if(!data.length){err('');return;}
+  const r=await api('transcribe',{audio:{mime,data}});
+  const q=$('q');q.value=(q.value?q.value+' ':'')+r.text.trim();resizeComposer();q.focus();err('');
+ }catch(e){err(requestErrorText(e,'Transcription failed.'));}
+}
+$('voice').onclick=async()=>{
+ if(recording){await handleVoiceStop();return;}
+ if(!voiceSupported()){err('Voice recording is not supported in this browser.');return;}
+ try{
+  recording=await recordVoice();
+  $('voice').classList.add('rec');$('voice').setAttribute('aria-pressed','true');$('voice').title='Stop recording and transcribe';
+  err('Recording… press the mic again to stop (max 4 minutes).');
+ }catch(e){err(e?.name==='NotAllowedError'?'Microphone access was denied.':'Could not start recording.');}
+};
+// Camera and screen snapshots join the normal attachment queue; attachment
+// turns ride the free vision chain server-side.
+async function pushCapture(promise,label){
+ try{
+  const blob=await promise,data=await b64(blob);
+  if(files.reduce((n,x)=>n+x.data.length,0)+data.length>3.9e6){err('Attachments are too large (about 2.8 MB total).');return;}
+  files.push({mime:'image/jpeg',data,name:label});renderAtt();err('');
+ }catch(e){err(e?.name==='NotAllowedError'?'Capture was denied or cancelled.':requestErrorText(e,'Capture failed.'));}
+}
+if(captureSupported()){
+ $('camera').title='Camera snapshot';$('camera').setAttribute('aria-label','Camera snapshot');
+ $('scr').hidden=false;
+ $('camera').onclick=()=>pushCapture(snapshotCamera(),'camera snapshot');
+ $('scr').onclick=()=>pushCapture(snapshotScreen(),'screen snapshot');
+}
 function resizeComposer(){const q=$('q');q.style.height='28px';q.style.height=Math.min(130,q.scrollHeight)+'px';q.style.overflowY=q.scrollHeight>130?'auto':'hidden';}
 $('q').addEventListener('input',resizeComposer);
 window.addEventListener('resize',resizeComposer);

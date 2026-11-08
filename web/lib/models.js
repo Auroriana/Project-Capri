@@ -1,6 +1,6 @@
 import {capHistory} from '../public/context-budget.js';
 import {isUuid} from './notes.js';
-import {externalModels, isExternal, ready} from './multi-provider.js';
+import {externalModels, isExternal, ready, supportsVision} from './multi-provider.js';
 export const models = [
   {id:'gemini-3.5-flash-lite',name:'Gemini 3.5 Flash Lite',purpose:'Everyday · recommended',rpm:15,rpd:500},
   {id:'gemini-3.1-flash-lite',name:'Gemini 3.1 Flash Lite',purpose:'Everyday · alternative',rpm:15,rpd:500},
@@ -48,8 +48,13 @@ export function validateChat(body) {
     if (!valid || bytes > 3_900_000) throw badFile();
   }
   const isExt = isExternal(model.id);
-  if (isExt && files.length > 0) {
-    throw Object.assign(new Error('External models do not support file attachments. Use a Gemini model for images/PDFs.'), {status: 400});
+  // Vision-capable external models (Nemotron Super VL / Nano Omni) accept the
+  // same image attachments as Gemini; text-only externals still refuse them.
+  if (isExt && files.length > 0 && !supportsVision(model.id)) {
+    throw Object.assign(new Error(model.name + ' is text only. Pick a Gemini model, Nemotron Super VL, or Nano Omni for attachments.'), {status: 400});
+  }
+  if (isExt && files.some(f => f.mime === 'application/pdf')) {
+    throw Object.assign(new Error('PDF attachments are supported on Gemini models only.'), {status: 400});
   }
   return {model:model.id,message:body.message.trim(),mode:body.mode,history:capHistory(history,body.settings?.max_history_tokens||3000),vault,concise,depth,...(body.followupCache?{followupCache:body.followupCache}:{}),files:files.map(({mime,data})=>({inlineData:{mimeType:mime,data}}))};
 }

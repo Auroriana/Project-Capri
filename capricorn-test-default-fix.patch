@@ -1,0 +1,13 @@
+diff --git a/web/tests/capricorn.test.mjs b/web/tests/capricorn.test.mjs
+index 32221c5..89c4383 100644
+--- a/web/tests/capricorn.test.mjs
++++ b/web/tests/capricorn.test.mjs
+@@ -10,7 +10,7 @@ test('Capri core is generated from the editable vault and stock settings migrate
+  assert.equal(CAPRI_CORE,file.split('<!-- runtime -->')[1].trim());
+  for(const p of legacyPersonalities)assert.equal(settingsOf({enabled:false,prompts:{personality:p}}).prompts.personality,CAPRI_CORE);
+  assert.equal(settingsOf({enabled:false}).enabled,true);
+- assert.equal(defaults.personality,'groq:openai/gpt-oss-120b');
++ assert.equal(defaults.personality,'nim:nvidia/nemotron-3-ultra-550b-a55b');
+  assert.equal(settingsOf({prompts:{personality:'My custom instructions'}}).prompts.personality,'My custom instructions');
+ });
+ test('personality catalog preserves provenance and corrected ending',async()=>{

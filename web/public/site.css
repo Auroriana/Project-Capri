@@ -1596,6 +1596,8 @@ input[type=checkbox]:not(.sw>input):focus-visible{outline:2px solid var(--acid);
 }
 #camera{grid-column:1;grid-row:2;color:var(--acid)}
 #camera:hover,.composer-actions button:hover{background:#2a1640;color:var(--bone);transform:translateY(-1px)}
+#voice.rec{background:#3a0a1a;color:#ff5470;animation:voice-pulse 1.2s ease-in-out infinite}
+@keyframes voice-pulse{50%{background:#571229;transform:scale(1.06)}}
 #chat button svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .composer-actions{grid-column:3;grid-row:2;display:flex;gap:7px;align-items:center;flex-shrink:0}
 .send-stack{position:relative}

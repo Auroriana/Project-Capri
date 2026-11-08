@@ -43,10 +43,35 @@ All optional; defaults in parentheses.
 
 ## If the limit itself is the blocker
 
-- **GLM-5.3 Flash is available through Z.ai directly** (`zai:glm-5.3-flash` in the model list): the same model family on a different host with its own key and quota (`ZAI_API_KEY`, `ZAI_FREE_ACCESS_CONFIRMED`). Use it as the everyday GLM path and keep NIM GLM as the overflow.
+- **GLM-5.3 Flash has a zero-cost path via OpenRouter** (`openrouter:z-ai/glm-5.3-flash:free`): implemented and wired as the everyday free GLM chain — see the next section. `OPENROUTER_API_KEY` needs no card, and `:free` models pass `freeAllowed()` without any extra confirmation flag.
+- **GLM-5.3 Flash via Z.ai directly** (`zai:glm-5.3-flash`) is the same model on a different host, but it is **paid** (roughly $0.08/$0.25 per million input/output tokens, prepaid balance required). The 5.x "-Flash" suffix no longer means free; Z.ai's genuinely free API models are GLM-4.7-Flash, GLM-4.5-Flash and GLM-4.6V-Flash. Use the Z.ai path only if you accept a (small) balance top-up, and keep `ZAI_FREE_ACCESS_CONFIRMED` honest — it attests the account is on a non-billing tier.
 - **DeepSeek V4.1 Flash** can run through DeepSeek's own API (`deepseek:deepseek-flash`); that provider is paid, so it requires `CAPRI_FREE_ONLY=false` plus a DeepSeek key.
 - **Nemotron 3 Ultra** has no first-party alternative in the current adapter set; on the free NIM tier it will remain the most queue-prone choice (largest model). The first-token watchdog plus Gemini failover is the practical mitigation.
 - A free-tier NIM rate-limit increase is not available; NVIDIA's guidance is a paid deployment for higher limits.
+
+## Follow-up: free everyday GLM via OpenRouter
+
+For a zero-budget setup, the everyday GLM no longer has to touch NIM (or Z.ai billing) at all.
+
+**Setup:** set `OPENROUTER_API_KEY` in the environment (free to create, no card), keep `CAPRI_FREE_ONLY=true`, then pick **OpenRouter / GLM 5.3 Flash (free)** for the personality layer in Capri's settings. The model id is `openrouter:z-ai/glm-5.3-flash:free` — it passes the free-only gate by id, with no extra confirmation variable. With a key present, model discovery also imports the rest of OpenRouter's `:free` catalog automatically.
+
+**Overflow chain** (in `externalStage`, `web/api/index.js`):
+
+1. `openrouter:z-ai/glm-5.3-flash:free` — the everyday hop.
+2. `nim:z-ai/glm-5.3-flash` — taken over automatically when OpenRouter fails, **including 429/402**. OpenRouter free endpoints share their quota with every other app on the platform, so rate limits there are routine, not emergencies — and the next hop is free, so overflowing is safe. This is a deliberate exception to the global rule that 429s surface to the browser; that rule stays in force everywhere else to protect the scarce Gemini quota.
+3. Gemini fallback — only when both free hops fail, exactly as before, with the quota reserve and runtime-awareness metadata intact.
+
+The NIM hop is conditional: if NIM is not ready (no key or free access unconfirmed), the free GLM falls back to Gemini directly, as before. The pipeline view says which hop answered (`started typing` progress) and why a switch happened.
+
+**Rate-limit caveat:** OpenRouter's free endpoints are per-minute and per-day capped per account. One chat turn is several model calls (router, personality, optional MIR/council), so a day of heavy MIR-depth use can exhaust a free daily allowance faster than expected. When that happens the chain above absorbs it, but if free-GLM answers start consistently coming from NIM, that is the signal — either pace the deep modes or move the everyday GLM to a paid provider.
+
+**What changed:**
+
+- `web/lib/multi-provider.js` — `openrouter:z-ai/glm-5.3-flash:free` added to the hardcoded external model list (with a plain-language name); discovery already handled OpenRouter.
+- `web/lib/provider-routing.js` — `generateWithOverflow` accepts a per-stage `failoverOn` predicate (default unchanged: `failoverUpstream`); `failoverUpstream` is exported.
+- `web/api/index.js` — `externalStage` chains OpenRouter free GLM → NIM GLM → Gemini, with chain-aware progress messages.
+- `web/.env.example` — documents the `:free` behavior next to `OPENROUTER_API_KEY`.
+- `web/tests/external-failover.test.mjs` — new coverage: free-only gating for the new id, the 429 opt-in behavior, and the full three-hop chain in both the happy and exhausted paths.
 
 ## Vercel note
 
@@ -56,3 +81,13 @@ All optional; defaults in parentheses.
 
 - Full `npm test --prefix web` suite: 187 passing, 1 pre-existing failure unrelated to this change ("Capri core is generated from the editable vault and stock settings migrate" — a CRLF/LF mismatch between `personality/Capricorn/01 Core/Always present.md` and the expected fixture; fix by normalizing line endings in that file or regenerating the core).
 - No live NIM request was made from this fix: no NIM key is available in this environment. After deploying, verify with one short chat turn per NIM model and watch the pipeline view: you should see the `started typing` progress, and either the answer or an explicit Gemini failover message.
+
+## Follow-up (Nov 2026): OpenRouter retired the free GLM — chains rebuilt on NIM
+
+The `z-ai/glm-5.3-flash:free` variant on OpenRouter now bills tokens, so the
+chain above no longer holds. The everyday free chain moved to NVIDIA NIM and
+grew a multimodal leg — see **MULTIMODAL-FREE-CHAIN.md** for the full picture:
+
+- **Text turns:** `nim:nvidia/nemotron-3-ultra-550b-a55b` → `nim:nvidia/nemotron-3-super-120b-a12b` → Gemini.
+- **Attachment turns:** `nim:nvidia/nemotron-3.5-super-vl-120b-a12b` → `openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` → Gemini.
+- The `openrouter:z-ai/glm-5.3-flash:free` entry stays registered (existing setups keep working if the id is still selectable on their account) but nothing depends on it anymore.

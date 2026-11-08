@@ -1,10 +1,11 @@
 import {createReranker} from '../lib/nvidia-rerank.js';
 import {withRuntime,rememberFailure} from '../lib/runtime-awareness.js';
-import {generateWithOverflow} from '../lib/provider-routing.js';
+import {generateWithOverflow,failoverUpstream} from '../lib/provider-routing.js';
 import {withRequest,registerRequest,stopRequests,requestFetch as fetch,checkRequest} from '../lib/request-control.js';
 import {withProviderCredentials,saveProviderCredential} from '../lib/provider-credentials.js';
 import {createCouncil,councilStep} from '../lib/model-council.js';
-import {discoverModels,externalModels,isExternal,externalGenerate,providerOf,ready} from '../lib/multi-provider.js';
+import {discoverModels,externalModels,isExternal,externalGenerate,providerOf,ready,supportsVision} from '../lib/multi-provider.js';
+import {transcribeRoute} from '../lib/transcribe.js';
 import {timelineRoutes} from '../lib/timeline.js';
 import {completeGeneration} from '../lib/generation-recovery.js';
 import {selectPassages} from '../lib/retrieval-selection.js';
@@ -122,19 +123,48 @@ async function handleRequest(req,res,generationController){
     let retrievalUsage={rerankCalls:0,rerankFallbacks:0,rerankInputTokens:0,rerankMs:0};
     const rank=createReranker({onUsage:event=>{retrievalUsage.rerankCalls++;retrievalUsage.rerankMs+=event.latencyMs;retrievalUsage.rerankFallbacks+=Number(event.fallback);retrievalUsage.rerankInputTokens+=event.inputTokens??event.estimatedInput??0;if(streaming)emit('progress',{stage:'reranking',model:event.model,fallback:event.fallback});}});
     const modelLabel=id=>providerOf(id).toUpperCase()+' / '+(id.includes(':')?id.slice(id.indexOf(':')+1):id);
-    const externalStage=(id,request,settings)=>generateWithOverflow(id,request,{
-      generate:(model,input)=>externalGenerate(model,input,{signal:generationController.signal,onAnswerStarted:()=>{if(streaming)emit('progress',{stage:'model-output',message:modelLabel(model)+' started typing.'});}}),
-      onFallback:reason=>{if(streaming)emit('progress',{stage:'model-output',message:reason==='budget'?'Using Gemini for this larger stage, with the full context preserved.':providerOf(id).toUpperCase()+' is slow or unreachable right now. Switching this step to Gemini; the full context is preserved.'});},
-      fallback:process.env.GEMINI_API_KEY&&process.env.GEMINI_FREE_TIER_CONFIRMED==='true'?async input=>{
-        checkRequest();const model=settings.reasoning?.startsWith('gemini-')?settings.reasoning:PLANNER_MODEL;activeModel=model;input=withRuntime(input,{owner:user.id,model,phase:activePhase,settings,fallbackFrom:id});
-        const ok=await sb('/rest/v1/rpc/aria_reserve',token,{p_model:model,p_tokens:estimateText(JSON.stringify(input))+(input.generationConfig?.maxOutputTokens||4096)});
-        if(!ok)throw fail('Gemini overflow quota is unavailable. Full context is saved; retry later or choose another model.',429);
-        return {...await gemini(model,input),modelUsed:model};
-      }:null
-    });
+    // Free everyday chain, rebuilt around NVIDIA NIM after OpenRouter retired
+    // the GLM :free endpoint (Nov 2026). Text turns run on Nemotron 3 Ultra
+    // (550B) with Nemotron 3 Super as the free overflow; attachment turns ride
+    // the vision chain (Nemotron 3.5 Super VL, then the OpenRouter free Nano
+    // Omni). Gemini stays the guarded last resort, and free-tier 429/402s
+    // count as failover because the next free hop costs nothing.
+    const TEXT_PRIMARY='nim:nvidia/nemotron-3-ultra-550b-a55b',TEXT_OVERFLOW='nim:nvidia/nemotron-3-super-120b-a12b';
+    const VISION_PRIMARY='nim:nvidia/nemotron-3.5-super-vl-120b-a12b',VISION_OVERFLOW='openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free';
+    const hasMedia=request=>(request.contents||[]).some(c=>c.parts.some(part=>part.inlineData));
+    const externalCall=(model,input)=>externalGenerate(model,input,{signal:generationController.signal,onAnswerStarted:()=>{if(streaming)emit('progress',{stage:'model-output',message:modelLabel(model)+' started typing.'});}});
+    const geminiStage=(fallbackFrom,settings)=>process.env.GEMINI_API_KEY&&process.env.GEMINI_FREE_TIER_CONFIRMED==='true'?async input=>{
+      checkRequest();const model=settings.reasoning?.startsWith('gemini-')?settings.reasoning:PLANNER_MODEL;activeModel=model;input=withRuntime(input,{owner:user.id,model,phase:activePhase,settings,fallbackFrom});
+      const ok=await sb('/rest/v1/rpc/aria_reserve',token,{p_model:model,p_tokens:estimateText(JSON.stringify(input))+(input.generationConfig?.maxOutputTokens||4096)});
+      if(!ok)throw fail('Gemini overflow quota is unavailable. Full context is saved; retry later or choose another model.',429);
+      return {...await gemini(model,input),modelUsed:model};
+    }:null;
+    const externalStage=(id,request,settings)=>{
+      // An attachment-bearing turn needs eyes. When the selected external
+      // model is text only, the whole turn moves to the free vision chain
+      // with the persona instructions intact.
+      const media=hasMedia(request);
+      const useVision=media&&!supportsVision(id)&&ready(VISION_PRIMARY);
+      const primary=useVision?VISION_PRIMARY:id;
+      const overflow=useVision?VISION_OVERFLOW:primary===TEXT_PRIMARY&&!media?TEXT_OVERFLOW:null;
+      const freeFailover=error=>failoverUpstream(error)||error.status===429||error.status===402;
+      if(primary!==id&&streaming)emit('progress',{stage:'model-output',message:'Attachments need a vision model. Using '+modelLabel(primary)+' for this turn; the full context is preserved.'});
+      return generateWithOverflow(primary,request,{
+        generate:(model,input)=>externalCall(model,input),
+        failoverOn:overflow?freeFailover:undefined,
+        onFallback:reason=>{if(!streaming)return;if(reason==='budget')emit('progress',{stage:'model-output',message:'Using Gemini for this larger stage, with the full context preserved.'});else if(overflow)emit('progress',{stage:'model-output',message:modelLabel(primary)+' is rate-limited or unreachable right now. Switching this step to '+modelLabel(overflow)+'; the full context is preserved.'});else emit('progress',{stage:'model-output',message:providerOf(id).toUpperCase()+' is slow or unreachable right now. Switching this step to Gemini; the full context is preserved.'});},
+        fallback:overflow?input=>generateWithOverflow(overflow,input,{
+          generate:(model,inner)=>externalCall(model,inner),
+          failoverOn:freeFailover,
+          onFallback:reason=>{if(streaming&&reason!=='budget')emit('progress',{stage:'model-output',message:modelLabel(overflow)+' is slow or unreachable right now. Switching this step to Gemini; the full context is preserved.'});},
+          fallback:geminiStage(primary,settings)
+        }):geminiStage(id,settings)
+      });
+    };
     if(req.method==='POST'&&route==='/api/provider-key'){saveProviderCredential(req,res,await readBody(req,3000),user.id);return send(200,{ok:true});}
     if(req.method==='GET'&&route==='/api/core-settings'){await discoverModels();return send(200,{defaults,legacyPersonality,legacyPersonalities,models:[...coreModels,...externalModels.filter(m=>!coreModels.some(x=>x.id===m.id))].map(m=>({...m,...(isExternal(m.id)?{available:ready(m.id)}:{})})),claudeReady:!!process.env.ANTHROPIC_API_KEY&&process.env.CLAUDE_API_ENABLED==='true'});}
     if(await pushRoutes({req,route,token,sb,send,fail,readBody}))return;
+    if(await transcribeRoute({req,route,readBody,send,fail,signal:generationController.signal}))return;
     if(await agendaRoutes({req,route,token,sb,send,fail,readBody,generate:gemini,model:PLANNER_MODEL}))return;
     if(await timelineRoutes({req,route,token,sb,send,fail,readBody}))return;
     if(await chatRoutes({req,route,token,sb,send,fail,readBody,generate:gemini,model:PLANNER_MODEL}))return;

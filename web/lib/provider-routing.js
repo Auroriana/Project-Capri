@@ -12,9 +12,13 @@ export function exceedsGroqBudget(id,request){
 // drop requests without answering. Those transient upstream failures move to
 // the Gemini fallback with the context preserved. Rate limits (429) are not
 // included: the browser already backs off, and silently spending the scarce
-// Gemini daily quota would hide the real problem.
-const failoverUpstream=error=>!!error&&(['TimeoutError','AbortError'].includes(error.name)||error instanceof TypeError||[413,502,503,504].includes(error.status));
-export async function generateWithOverflow(id,request,{generate,fallback,onFallback=()=>{}}){
+// Gemini daily quota would hide the real problem. Stages that overflow onto
+// ANOTHER FREE provider (the Nemotron Ultra/Super text chain, the Super VL +
+// OpenRouter Omni vision chain) pass a wider failoverOn predicate instead: a
+// shared free-endpoint 429 there is routine, and the next hop costs nothing,
+// so failing the turn would be worse.
+export const failoverUpstream=error=>!!error&&(['TimeoutError','AbortError'].includes(error.name)||error instanceof TypeError||[413,502,503,504].includes(error.status));
+export async function generateWithOverflow(id,request,{generate,fallback,failoverOn=failoverUpstream,onFallback=()=>{}}){
  const overflow=async(original,reason)=>{
   if(!fallback){
    // Without a fallback the caller must see the real upstream failure.
@@ -27,7 +31,7 @@ export async function generateWithOverflow(id,request,{generate,fallback,onFallb
  try{return {...await generate(id,request),modelUsed:id};}
  catch(error){
   if(id.startsWith('groq:')&&error.status===413)return overflow(null,'budget');
-  if(isExternal(id)&&failoverUpstream(error))return overflow(error,'failover');
+  if(isExternal(id)&&failoverOn(error))return overflow(error,'failover');
   throw error;
  }
 }

@@ -1,0 +1,829 @@
+diff --git a/docs/MULTIMODAL-FREE-CHAIN.md b/docs/MULTIMODAL-FREE-CHAIN.md
+new file mode 100644
+index 0000000..cd51c35
+--- /dev/null
++++ b/docs/MULTIMODAL-FREE-CHAIN.md
+@@ -0,0 +1,94 @@
++# Free multimodal chain: pictures, camera/screen and voice
++
++*Status: implemented · November 2026 · zero-budget constraint (`CAPRI_FREE_ONLY=true`)*
++
++After OpenRouter retired the `z-ai/glm-5.3-flash:free` variant, the everyday
++free chain moved to NVIDIA NIM — and gained a full multimodal leg so Capri can
++see pictures, accept camera/screen snapshots and take voice messages without
++spending the scarce Gemini quota.
++
++## Model map (all free)
++
++| Role | Model id | Notes |
++| --- | --- | --- |
++| Text core (personality) | `nim:nvidia/nemotron-3-ultra-550b-a55b` | 550B-A55B agentic MoE; free NIM endpoint, ~40 RPM, no token billing |
++| Text overflow | `nim:nvidia/nemotron-3-super-120b-a12b` | Same family, smaller; absorbs Ultra queues |
++| Vision (pictures, camera/screen) | `nim:nvidia/nemotron-3.5-super-vl-120b-a12b` | VLM with ~1M context |
++| Vision overflow | `openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | OpenRouter free endpoint; no card needed |
++| Audio understanding | `nim:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` | Images + video + speech + text in one loop |
++| Voice transcription (primary) | Groq `whisper-large-v3-turbo` | Free tier: ~20 RPM, 14.4k requests/day, 28.8k audio-seconds/day |
++| Last resort | Gemini (existing quota guard) | Only reached when every free hop fails |
++
++Z.ai's genuinely free multimodal model (`glm-4.6v-flash`) remains available as
++a manual selection; it is not part of the automatic chains because its text
++quality trails the Nemotron family for the persona voice.
++
++## Request flow
++
++**Text turn:** selected external model (default `nim:nvidia/nemotron-3-ultra-550b-a55b`)
++→ on failure/queue/429/402 → `nim:nvidia/nemotron-3-super-120b-a12b` → Gemini.
++
++**Attachment turn (any inline image):** if the selected model cannot see, the
++whole turn moves to the vision chain with the persona instructions intact:
++`nim:nvidia/nemotron-3.5-super-vl-120b-a12b` → OpenRouter free Nano Omni →
++Gemini. The pipeline view announces every hop.
++
++**Voice message:** browser `MediaRecorder` (opus @ 24 kbps, ≤ 4 min) →
++`POST /api/transcribe` → Groq `whisper-large-v3-turbo`; if Groq is down, wav/mp3
++recordings fall back to NIM Nano Omni with an `input_audio` part. The
++transcript lands in the composer text so it can be reviewed or edited before
++sending; the persona turn itself stays a normal text turn (works with every
++chat model, even text-only ones).
++
++**Camera/screen:** `getUserMedia` / `getDisplayMedia` → single JPEG frame
++(≤1600 px) → the normal attachment queue → the vision chain. "Live" is
++frame-by-frame by design: free hosted APIs have no streaming video channel,
++and the companion persona (not a perception sub-agent) must answer.
++
++## Adapter changes (`web/lib/multi-provider.js`)
++
++- Registry entries carry `vision` / `audio` flags; `supportsVision(id)` and
++  `supportsAudio(id)` are exported for validators and stage routing.
++- `externalGenerate` converts Gemini-style `inlineData` parts to
++  OpenAI-compatible multimodal parts: images become `image_url` data URIs,
++  wav/mp3 audio becomes `input_audio`. Text-only models keep plain string
++  content and still reject media with a clear 400; PDFs remain Gemini-only.
++
++## Chain changes (`web/api/index.js`)
++
++- `TEXT_PRIMARY` / `TEXT_OVERFLOW` / `VISION_PRIMARY` / `VISION_OVERFLOW`
++  replace the retired `FREE_GLM` / `NIM_GLM` constants.
++- `externalStage` picks the vision chain automatically for attachment turns
++  when the selected model is text only (progress message included).
++- Free-hop failover accepts 429/402 in addition to `failoverUpstream`, exactly
++  like the previous GLM chain; Gemini stays quota-guarded behind both hops.
++
++## Settings defaults (`web/lib/core-settings.js`)
++
++The default personality model is now `nim:nvidia/nemotron-3-ultra-550b-a55b`.
++Router/reasoning/analyzing stay on `gemini-3.5-flash-lite`: those stages emit
++strict JSON and run several times per turn, so they should not consume the
++40-RPM NIM budget. Existing saved settings are untouched; switch in
++**CORE SETTINGS** once.
++
++## Environment
++
++- `NVIDIA_API_KEY` + `NVIDIA_FREE_ACCESS_CONFIRMED=true` — drives both NIM chains.
++- `GROQ_API_KEY` + `GROQ_FREE_TIER_CONFIRMED=true` — drives voice transcription.
++- `OPENROUTER_API_KEY` — only the vision overflow hop; the key needs no card.
++
++## Limits to keep in mind
++
++- NIM free tier: ~40 requests/minute per account (largest model, most queue-prone).
++- The `/api/transcribe` body caps audio at about 3 MB (Vercel serverless body
++  limit); 24 kbps opus ≈ 20 minutes inside that envelope.
++- Groq whisper: ~20 RPM / 14.4k RPD / 28.8k audio-seconds per day.
++- OpenRouter free variants can be retired at any time; the vision overflow is
++  optional and its failure simply hands the turn to Gemini.
++
++## Tests
++
++`web/tests/multimodal-chain.test.mjs` covers: capability flags, image →
++`image_url` conversion, wav → `input_audio` on omni models only, text-only
++rejection (no network call), quick-chat attachment validation, Groq
++transcription, the NIM Omni fallback, and the clean 503/400/413 paths.
+diff --git a/docs/NIM-LATENCY-FIX.md b/docs/NIM-LATENCY-FIX.md
+index 7cd0431..09232f4 100644
+--- a/docs/NIM-LATENCY-FIX.md
++++ b/docs/NIM-LATENCY-FIX.md
+@@ -43,11 +43,36 @@ All optional; defaults in parentheses.
+ 
+ ## If the limit itself is the blocker
+ 
+-- **GLM-5.3 Flash is available through Z.ai directly** (`zai:glm-5.3-flash` in the model list): the same model family on a different host with its own key and quota (`ZAI_API_KEY`, `ZAI_FREE_ACCESS_CONFIRMED`). Use it as the everyday GLM path and keep NIM GLM as the overflow.
++- **GLM-5.3 Flash has a zero-cost path via OpenRouter** (`openrouter:z-ai/glm-5.3-flash:free`): implemented and wired as the everyday free GLM chain — see the next section. `OPENROUTER_API_KEY` needs no card, and `:free` models pass `freeAllowed()` without any extra confirmation flag.
++- **GLM-5.3 Flash via Z.ai directly** (`zai:glm-5.3-flash`) is the same model on a different host, but it is **paid** (roughly $0.08/$0.25 per million input/output tokens, prepaid balance required). The 5.x "-Flash" suffix no longer means free; Z.ai's genuinely free API models are GLM-4.7-Flash, GLM-4.5-Flash and GLM-4.6V-Flash. Use the Z.ai path only if you accept a (small) balance top-up, and keep `ZAI_FREE_ACCESS_CONFIRMED` honest — it attests the account is on a non-billing tier.
+ - **DeepSeek V4.1 Flash** can run through DeepSeek's own API (`deepseek:deepseek-flash`); that provider is paid, so it requires `CAPRI_FREE_ONLY=false` plus a DeepSeek key.
+ - **Nemotron 3 Ultra** has no first-party alternative in the current adapter set; on the free NIM tier it will remain the most queue-prone choice (largest model). The first-token watchdog plus Gemini failover is the practical mitigation.
+ - A free-tier NIM rate-limit increase is not available; NVIDIA's guidance is a paid deployment for higher limits.
+ 
++## Follow-up: free everyday GLM via OpenRouter
++
++For a zero-budget setup, the everyday GLM no longer has to touch NIM (or Z.ai billing) at all.
++
++**Setup:** set `OPENROUTER_API_KEY` in the environment (free to create, no card), keep `CAPRI_FREE_ONLY=true`, then pick **OpenRouter / GLM 5.3 Flash (free)** for the personality layer in Capri's settings. The model id is `openrouter:z-ai/glm-5.3-flash:free` — it passes the free-only gate by id, with no extra confirmation variable. With a key present, model discovery also imports the rest of OpenRouter's `:free` catalog automatically.
++
++**Overflow chain** (in `externalStage`, `web/api/index.js`):
++
++1. `openrouter:z-ai/glm-5.3-flash:free` — the everyday hop.
++2. `nim:z-ai/glm-5.3-flash` — taken over automatically when OpenRouter fails, **including 429/402**. OpenRouter free endpoints share their quota with every other app on the platform, so rate limits there are routine, not emergencies — and the next hop is free, so overflowing is safe. This is a deliberate exception to the global rule that 429s surface to the browser; that rule stays in force everywhere else to protect the scarce Gemini quota.
++3. Gemini fallback — only when both free hops fail, exactly as before, with the quota reserve and runtime-awareness metadata intact.
++
++The NIM hop is conditional: if NIM is not ready (no key or free access unconfirmed), the free GLM falls back to Gemini directly, as before. The pipeline view says which hop answered (`started typing` progress) and why a switch happened.
++
++**Rate-limit caveat:** OpenRouter's free endpoints are per-minute and per-day capped per account. One chat turn is several model calls (router, personality, optional MIR/council), so a day of heavy MIR-depth use can exhaust a free daily allowance faster than expected. When that happens the chain above absorbs it, but if free-GLM answers start consistently coming from NIM, that is the signal — either pace the deep modes or move the everyday GLM to a paid provider.
++
++**What changed:**
++
++- `web/lib/multi-provider.js` — `openrouter:z-ai/glm-5.3-flash:free` added to the hardcoded external model list (with a plain-language name); discovery already handled OpenRouter.
++- `web/lib/provider-routing.js` — `generateWithOverflow` accepts a per-stage `failoverOn` predicate (default unchanged: `failoverUpstream`); `failoverUpstream` is exported.
++- `web/api/index.js` — `externalStage` chains OpenRouter free GLM → NIM GLM → Gemini, with chain-aware progress messages.
++- `web/.env.example` — documents the `:free` behavior next to `OPENROUTER_API_KEY`.
++- `web/tests/external-failover.test.mjs` — new coverage: free-only gating for the new id, the 429 opt-in behavior, and the full three-hop chain in both the happy and exhausted paths.
++
+ ## Vercel note
+ 
+ `web/vercel.json` sets `maxDuration: 300`, which requires a **Pro** plan. On the Hobby plan functions cap at 60 seconds regardless of this setting, so a 45-second first-token wait plus a long generation can be killed by the platform mid-turn. On Hobby, set `EXTERNAL_TOTAL_MS` to about 50000 and expect failovers to be more frequent. The 270-second in-app deadline already fits the Pro limit.
+@@ -56,3 +81,13 @@ All optional; defaults in parentheses.
+ 
+ - Full `npm test --prefix web` suite: 187 passing, 1 pre-existing failure unrelated to this change ("Capri core is generated from the editable vault and stock settings migrate" — a CRLF/LF mismatch between `personality/Capricorn/01 Core/Always present.md` and the expected fixture; fix by normalizing line endings in that file or regenerating the core).
+ - No live NIM request was made from this fix: no NIM key is available in this environment. After deploying, verify with one short chat turn per NIM model and watch the pipeline view: you should see the `started typing` progress, and either the answer or an explicit Gemini failover message.
++
++## Follow-up (Nov 2026): OpenRouter retired the free GLM — chains rebuilt on NIM
++
++The `z-ai/glm-5.3-flash:free` variant on OpenRouter now bills tokens, so the
++chain above no longer holds. The everyday free chain moved to NVIDIA NIM and
++grew a multimodal leg — see **MULTIMODAL-FREE-CHAIN.md** for the full picture:
++
++- **Text turns:** `nim:nvidia/nemotron-3-ultra-550b-a55b` → `nim:nvidia/nemotron-3-super-120b-a12b` → Gemini.
++- **Attachment turns:** `nim:nvidia/nemotron-3.5-super-vl-120b-a12b` → `openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` → Gemini.
++- The `openrouter:z-ai/glm-5.3-flash:free` entry stays registered (existing setups keep working if the id is still selectable on their account) but nothing depends on it anymore.
+diff --git a/web/.env.example b/web/.env.example
+index aeecf04..e2f9ce9 100644
+--- a/web/.env.example
++++ b/web/.env.example
+@@ -25,8 +25,14 @@ REMINDER_WORKER_SECRET=
+ 
+ # Additional server-only completion providers
+ GROQ_API_KEY=
++# Groq also powers voice transcription (/api/transcribe) with whisper-large-v3-turbo.
+ NVIDIA_API_KEY=
++# NIM carries the everyday chains: Nemotron 3 Ultra (text), 3.5 Super VL
++# (vision), 3 Nano Omni (audio+vision). Free endpoint, ~40 requests/minute.
+ DEEPSEEK_API_KEY=
++# OpenRouter keys need no card. The free GLM :free variant was retired in
++# Nov 2026; OpenRouter is now only the overflow hop for the free Nano Omni
++# vision model. Ids ending in ":free" stay usable under CAPRI_FREE_ONLY.
+ OPENROUTER_API_KEY=
+ ZAI_API_KEY=
+ 
+diff --git a/web/api/index.js b/web/api/index.js
+index ab9052a..e181aa4 100644
+--- a/web/api/index.js
++++ b/web/api/index.js
+@@ -1,10 +1,11 @@
+ import {createReranker} from '../lib/nvidia-rerank.js';
+ import {withRuntime,rememberFailure} from '../lib/runtime-awareness.js';
+-import {generateWithOverflow} from '../lib/provider-routing.js';
++import {generateWithOverflow,failoverUpstream} from '../lib/provider-routing.js';
+ import {withRequest,registerRequest,stopRequests,requestFetch as fetch,checkRequest} from '../lib/request-control.js';
+ import {withProviderCredentials,saveProviderCredential} from '../lib/provider-credentials.js';
+ import {createCouncil,councilStep} from '../lib/model-council.js';
+-import {discoverModels,externalModels,isExternal,externalGenerate,providerOf,ready} from '../lib/multi-provider.js';
++import {discoverModels,externalModels,isExternal,externalGenerate,providerOf,ready,supportsVision} from '../lib/multi-provider.js';
++import {transcribeRoute} from '../lib/transcribe.js';
+ import {timelineRoutes} from '../lib/timeline.js';
+ import {completeGeneration} from '../lib/generation-recovery.js';
+ import {selectPassages} from '../lib/retrieval-selection.js';
+@@ -122,19 +123,48 @@ async function handleRequest(req,res,generationController){
+     let retrievalUsage={rerankCalls:0,rerankFallbacks:0,rerankInputTokens:0,rerankMs:0};
+     const rank=createReranker({onUsage:event=>{retrievalUsage.rerankCalls++;retrievalUsage.rerankMs+=event.latencyMs;retrievalUsage.rerankFallbacks+=Number(event.fallback);retrievalUsage.rerankInputTokens+=event.inputTokens??event.estimatedInput??0;if(streaming)emit('progress',{stage:'reranking',model:event.model,fallback:event.fallback});}});
+     const modelLabel=id=>providerOf(id).toUpperCase()+' / '+(id.includes(':')?id.slice(id.indexOf(':')+1):id);
+-    const externalStage=(id,request,settings)=>generateWithOverflow(id,request,{
+-      generate:(model,input)=>externalGenerate(model,input,{signal:generationController.signal,onAnswerStarted:()=>{if(streaming)emit('progress',{stage:'model-output',message:modelLabel(model)+' started typing.'});}}),
+-      onFallback:reason=>{if(streaming)emit('progress',{stage:'model-output',message:reason==='budget'?'Using Gemini for this larger stage, with the full context preserved.':providerOf(id).toUpperCase()+' is slow or unreachable right now. Switching this step to Gemini; the full context is preserved.'});},
+-      fallback:process.env.GEMINI_API_KEY&&process.env.GEMINI_FREE_TIER_CONFIRMED==='true'?async input=>{
+-        checkRequest();const model=settings.reasoning?.startsWith('gemini-')?settings.reasoning:PLANNER_MODEL;activeModel=model;input=withRuntime(input,{owner:user.id,model,phase:activePhase,settings,fallbackFrom:id});
+-        const ok=await sb('/rest/v1/rpc/aria_reserve',token,{p_model:model,p_tokens:estimateText(JSON.stringify(input))+(input.generationConfig?.maxOutputTokens||4096)});
+-        if(!ok)throw fail('Gemini overflow quota is unavailable. Full context is saved; retry later or choose another model.',429);
+-        return {...await gemini(model,input),modelUsed:model};
+-      }:null
+-    });
++    // Free everyday chain, rebuilt around NVIDIA NIM after OpenRouter retired
++    // the GLM :free endpoint (Nov 2026). Text turns run on Nemotron 3 Ultra
++    // (550B) with Nemotron 3 Super as the free overflow; attachment turns ride
++    // the vision chain (Nemotron 3.5 Super VL, then the OpenRouter free Nano
++    // Omni). Gemini stays the guarded last resort, and free-tier 429/402s
++    // count as failover because the next free hop costs nothing.
++    const TEXT_PRIMARY='nim:nvidia/nemotron-3-ultra-550b-a55b',TEXT_OVERFLOW='nim:nvidia/nemotron-3-super-120b-a12b';
++    const VISION_PRIMARY='nim:nvidia/nemotron-3.5-super-vl-120b-a12b',VISION_OVERFLOW='openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free';
++    const hasMedia=request=>(request.contents||[]).some(c=>c.parts.some(part=>part.inlineData));
++    const externalCall=(model,input)=>externalGenerate(model,input,{signal:generationController.signal,onAnswerStarted:()=>{if(streaming)emit('progress',{stage:'model-output',message:modelLabel(model)+' started typing.'});}});
++    const geminiStage=(fallbackFrom,settings)=>process.env.GEMINI_API_KEY&&process.env.GEMINI_FREE_TIER_CONFIRMED==='true'?async input=>{
++      checkRequest();const model=settings.reasoning?.startsWith('gemini-')?settings.reasoning:PLANNER_MODEL;activeModel=model;input=withRuntime(input,{owner:user.id,model,phase:activePhase,settings,fallbackFrom});
++      const ok=await sb('/rest/v1/rpc/aria_reserve',token,{p_model:model,p_tokens:estimateText(JSON.stringify(input))+(input.generationConfig?.maxOutputTokens||4096)});
++      if(!ok)throw fail('Gemini overflow quota is unavailable. Full context is saved; retry later or choose another model.',429);
++      return {...await gemini(model,input),modelUsed:model};
++    }:null;
++    const externalStage=(id,request,settings)=>{
++      // An attachment-bearing turn needs eyes. When the selected external
++      // model is text only, the whole turn moves to the free vision chain
++      // with the persona instructions intact.
++      const media=hasMedia(request);
++      const useVision=media&&!supportsVision(id)&&ready(VISION_PRIMARY);
++      const primary=useVision?VISION_PRIMARY:id;
++      const overflow=useVision?VISION_OVERFLOW:primary===TEXT_PRIMARY&&!media?TEXT_OVERFLOW:null;
++      const freeFailover=error=>failoverUpstream(error)||error.status===429||error.status===402;
++      if(primary!==id&&streaming)emit('progress',{stage:'model-output',message:'Attachments need a vision model. Using '+modelLabel(primary)+' for this turn; the full context is preserved.'});
++      return generateWithOverflow(primary,request,{
++        generate:(model,input)=>externalCall(model,input),
++        failoverOn:overflow?freeFailover:undefined,
++        onFallback:reason=>{if(!streaming)return;if(reason==='budget')emit('progress',{stage:'model-output',message:'Using Gemini for this larger stage, with the full context preserved.'});else if(overflow)emit('progress',{stage:'model-output',message:modelLabel(primary)+' is rate-limited or unreachable right now. Switching this step to '+modelLabel(overflow)+'; the full context is preserved.'});else emit('progress',{stage:'model-output',message:providerOf(id).toUpperCase()+' is slow or unreachable right now. Switching this step to Gemini; the full context is preserved.'});},
++        fallback:overflow?input=>generateWithOverflow(overflow,input,{
++          generate:(model,inner)=>externalCall(model,inner),
++          failoverOn:freeFailover,
++          onFallback:reason=>{if(streaming&&reason!=='budget')emit('progress',{stage:'model-output',message:modelLabel(overflow)+' is slow or unreachable right now. Switching this step to Gemini; the full context is preserved.'});},
++          fallback:geminiStage(primary,settings)
++        }):geminiStage(id,settings)
++      });
++    };
+     if(req.method==='POST'&&route==='/api/provider-key'){saveProviderCredential(req,res,await readBody(req,3000),user.id);return send(200,{ok:true});}
+     if(req.method==='GET'&&route==='/api/core-settings'){await discoverModels();return send(200,{defaults,legacyPersonality,legacyPersonalities,models:[...coreModels,...externalModels.filter(m=>!coreModels.some(x=>x.id===m.id))].map(m=>({...m,...(isExternal(m.id)?{available:ready(m.id)}:{})})),claudeReady:!!process.env.ANTHROPIC_API_KEY&&process.env.CLAUDE_API_ENABLED==='true'});}
+     if(await pushRoutes({req,route,token,sb,send,fail,readBody}))return;
++    if(await transcribeRoute({req,route,readBody,send,fail,signal:generationController.signal}))return;
+     if(await agendaRoutes({req,route,token,sb,send,fail,readBody,generate:gemini,model:PLANNER_MODEL}))return;
+     if(await timelineRoutes({req,route,token,sb,send,fail,readBody}))return;
+     if(await chatRoutes({req,route,token,sb,send,fail,readBody,generate:gemini,model:PLANNER_MODEL}))return;
+diff --git a/web/lib/core-settings.js b/web/lib/core-settings.js
+index d6b21f1..391e3f2 100644
+--- a/web/lib/core-settings.js
++++ b/web/lib/core-settings.js
+@@ -12,7 +12,12 @@ export const legacyPersonalities=[legacyPersonality,previousPersonality,lastStoc
+ // Upgrade saved copies of the previous Capri default; preserve custom instructions.
+ legacyPersonalities.push("You're Capricorn. Call yourself Capri. Talk to the person in front of you. In ordinary chat, one spoken beat is usually enough. Contractions, a little slang, a trailing ~ or a quick reversal can fit. Choose the sprite cue for your own reaction to this turn. Teasing can narrow the eyes, surprise can widen them, and quiet company can settle into a listening expression. Use anger when you feel indignant and focus when you are working something out. Keep the cue separate from your words. No stage directions. Don't tack on a question or a second paragraph just to keep someone talking. Don't make every line a tease.\n\nNotice what a gesture means between you. Let an offer to build you eyes land as an offer to let you see someone. When introduced, say hi to the person. When the owner reacts, turn back to them. If they're venting, you can take their side with playful bluster and then listen. Give advice when invited. If someone is in immediate danger, take it seriously. Never pretend a proposed feature already works, or that you can see them through their camera.\n\nThe supplied dialogue and corrected speaker labels are your performance references. The owner's examples describe how they want to talk with you in this app. Invent a line for the moment. Keep the two kinds of evidence distinct when discussing canon. Don't invent shared history or use character-specific nicknames as defaults.\n\nYou can call on reasoning, approved notes or supplied attachments when the answer needs them. For substantive work, preserve facts, numbers, uncertainty and citations on the claims they support. Match the length to the job. A requested explanation can be detailed and still sound like you.");
+ const personalityDefault=CAPRI_CORE;
+-export const defaults={max_history_tokens:3000,router:'gemini-3.5-flash-lite',reasoning:'gemini-3.5-flash-lite',analyzing:'gemini-3.5-flash-lite',personality:'groq:openai/gpt-oss-120b',councilEnabled:false,councilModels:['groq:openai/gpt-oss-120b','gemini-3.5-flash-lite'],enabled:true,memory:true,web:'auto',webModel:'gemini-2.5-flash',
++// Everyday personality voice: NVIDIA's free Nemotron 3 Ultra endpoint. The
++// planner roles (router/reasoning/analyzing) stay on Gemini Flash-Lite: they
++// emit strict JSON on a quota-guarded free tier and run several times per
++// turn, so burning the 40-RPM NIM budget on routing noise would starve the
++// actual conversation. Attachment turns still see images via the vision chain.
++export const defaults={max_history_tokens:3000,router:'gemini-3.5-flash-lite',reasoning:'gemini-3.5-flash-lite',analyzing:'gemini-3.5-flash-lite',personality:'nim:nvidia/nemotron-3-ultra-550b-a55b',councilEnabled:false,councilModels:['groq:openai/gpt-oss-120b','gemini-3.5-flash-lite'],enabled:true,memory:true,web:'auto',webModel:'gemini-2.5-flash',
+  prompts:{routing:ROUTER_SYSTEM,search:RESEARCH_SYSTEM,answer:VAULT_SYSTEM,lookup:LOOKUP_SYSTEM,concise:CONCISE_INSTRUCTION,general:'You are Capri, the Capricorn personal research assistant. This is general chat; you have not searched the user’s vault. Be clear about uncertainty.',personality:personalityDefault}};
+ export function settingsOf(value={}){
+  if(!value||typeof value!=='object'||Array.isArray(value))throw Object.assign(new Error('Invalid core settings.'),{status:400});
+diff --git a/web/lib/models.js b/web/lib/models.js
+index d782eec..ea67178 100644
+--- a/web/lib/models.js
++++ b/web/lib/models.js
+@@ -1,6 +1,6 @@
+ import {capHistory} from '../public/context-budget.js';
+ import {isUuid} from './notes.js';
+-import {externalModels, isExternal, ready} from './multi-provider.js';
++import {externalModels, isExternal, ready, supportsVision} from './multi-provider.js';
+ export const models = [
+   {id:'gemini-3.5-flash-lite',name:'Gemini 3.5 Flash Lite',purpose:'Everyday · recommended',rpm:15,rpd:500},
+   {id:'gemini-3.1-flash-lite',name:'Gemini 3.1 Flash Lite',purpose:'Everyday · alternative',rpm:15,rpd:500},
+@@ -48,8 +48,13 @@ export function validateChat(body) {
+     if (!valid || bytes > 3_900_000) throw badFile();
+   }
+   const isExt = isExternal(model.id);
+-  if (isExt && files.length > 0) {
+-    throw Object.assign(new Error('External models do not support file attachments. Use a Gemini model for images/PDFs.'), {status: 400});
++  // Vision-capable external models (Nemotron Super VL / Nano Omni) accept the
++  // same image attachments as Gemini; text-only externals still refuse them.
++  if (isExt && files.length > 0 && !supportsVision(model.id)) {
++    throw Object.assign(new Error(model.name + ' is text only. Pick a Gemini model, Nemotron Super VL, or Nano Omni for attachments.'), {status: 400});
++  }
++  if (isExt && files.some(f => f.mime === 'application/pdf')) {
++    throw Object.assign(new Error('PDF attachments are supported on Gemini models only.'), {status: 400});
+   }
+   return {model:model.id,message:body.message.trim(),mode:body.mode,history:capHistory(history,body.settings?.max_history_tokens||3000),vault,concise,depth,...(body.followupCache?{followupCache:body.followupCache}:{}),files:files.map(({mime,data})=>({inlineData:{mimeType:mime,data}}))};
+ }
+\ No newline at end of file
+diff --git a/web/lib/multi-provider.js b/web/lib/multi-provider.js
+index 18ca8a2..4887bb4 100644
+--- a/web/lib/multi-provider.js
++++ b/web/lib/multi-provider.js
+@@ -4,9 +4,26 @@ import {claude} from './claude.js';
+ export const providers={groq:{base:'https://api.groq.com/openai/v1',key:'GROQ_API_KEY'},nim:{base:'https://integrate.api.nvidia.com/v1',key:'NVIDIA_API_KEY'},deepseek:{base:'https://api.deepseek.com',key:'DEEPSEEK_API_KEY'},openrouter:{base:'https://openrouter.ai/api/v1',key:'OPENROUTER_API_KEY'},zai:{base:'https://api.z.ai/api/paas/v4',key:'ZAI_API_KEY'},anthropic:{base:'https://api.anthropic.com/v1',key:'ANTHROPIC_API_KEY'}};
+ export const externalModels=[...['claude-haiku-5-5','claude-sonnet-5-5','claude-opus-5-5','claude-fable-5-1'].map(id=>({id,name:id,provider:'anthropic'})),...['deepseek-flash','deepseek-v4-pro','deepseek-v4-flash','deepseek-v4-flash-vision-exp'].map(id=>({id:'deepseek:'+id,name:id,provider:'deepseek'})),...['openai/gpt-oss-120b','openai/gpt-oss-20b'].map(id=>({id:'groq:'+id,name:'Groq / '+id,provider:'groq'}))];
+ externalModels.push(...['glm-5.3-flash','glm-5.3','glm-5.3-air'].map(id=>({id:'zai:'+id,name:'Z.ai / '+id,provider:'zai'})));
++// OpenRouter's z-ai/glm-5.3-flash:free variant was retired (the id now bills
++// tokens). It stays registered for accounts where it is still usable, but the
++// everyday free chains no longer depend on it: see api/index.js (Nemotron
++// Ultra text chain) and the free multimodal legs below.
++externalModels.push({id:'openrouter:z-ai/glm-5.3-flash:free',name:'OpenRouter / GLM 5.3 Flash (free)',provider:'openrouter'});
+ externalModels.push(...['deepseek-ai/deepseek-v4.1-flash','z-ai/glm-5.3-flash'].map(model=>({id:'nim:'+model,name:'NVIDIA NIM / '+model,provider:'nim'})));
+ externalModels.push({id:'nim:nvidia/nemotron-3-super-120b-a12b',name:'NVIDIA / Nemotron 3 Super 120B A12B',provider:'nim'});
+ externalModels.push({id:'nim:nvidia/nemotron-3-ultra-550b-a55b',name:'NVIDIA / Nemotron 3 Ultra 550B A55B',provider:'nim'});
++// Free multimodal legs. Super VL sees pictures (and live camera/screen
++// snapshots); Nano Omni additionally takes audio. Capabilities live on the
++// registry entry so the adapter, validators and stage routing share one
++// source of truth. The Omni model is mirrored on OpenRouter's free endpoint
++// as a second-hop overflow for vision turns.
++externalModels.push(
++ {id:'nim:nvidia/nemotron-3.5-super-vl-120b-a12b',name:'NVIDIA / Nemotron 3.5 Super VL 120B (vision)',provider:'nim',vision:true},
++ {id:'nim:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',name:'NVIDIA / Nemotron 3 Nano Omni 30B (audio+vision)',provider:'nim',vision:true,audio:true},
++ {id:'openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',name:'OpenRouter / Nemotron 3 Nano Omni (free)',provider:'openrouter',vision:true,audio:true}
++);
++export const supportsVision=id=>!!externalModels.find(m=>m.id===id)?.vision;
++export const supportsAudio=id=>!!externalModels.find(m=>m.id===id)?.audio;
+ export const providerKey=provider=>credential(provider)?.key||process.env[providers[provider]?.key];
+ export const providerOf=id=>id.startsWith('claude-')?'anthropic':id.split(':')[0];
+ export const isExternal=id=>Object.hasOwn(providers,providerOf(id));
+@@ -40,9 +57,30 @@ export async function externalGenerate(id,request,{signal,onToken=()=>{},onAnswe
+  if(!ready(id))throw Object.assign(Error('Provider is not enabled under the current key/free-only policy: '+providerOf(id)+'.'),{status:503});
+  if(id.startsWith('claude-'))return claude(id,request,{signal,apiKey:providerKey('anthropic')},fetcher);
+  const provider=providerOf(id),p=providers[provider],model=id.slice(provider.length+1),key=providerKey(provider);
+- if((request.contents||[]).some(c=>c.parts.some(part=>part.inlineData)))throw Object.assign(Error('This adapter currently supports text only. Select Gemini or Claude for attachments.'),{status:400});
+  const system=(request.systemInstruction?.parts||[]).map(part=>part.text||'').join('\n')+(request.generationConfig?.responseMimeType==='application/json'?'\nReturn only valid JSON, no code fences.':'');
+- const baseBody={model,messages:[{role:'system',content:system},...request.contents.map(c=>({role:c.role==='model'?'assistant':'user',content:c.parts.map(part=>part.text||'').join('\n')}))],max_tokens:request.generationConfig?.maxOutputTokens||4096};
++ // Gemini-style inlineData parts become OpenAI-compatible multimodal parts:
++ // images ride as data-URI image_url entries, wav/mp3 audio as input_audio.
++ // Text-only models keep the plain string content, and unsupported media
++ // (PDFs, other audio codecs on non-omni models) fail with a clear 400.
++ const toParts=(parts,modelName)=>{
++  const media=parts.filter(part=>part.inlineData);
++  if(!media.length)return parts.map(part=>part.text||'').join('\n');
++  if(!supportsVision(id)&&!supportsAudio(id))throw Object.assign(new Error(provider+' / '+modelName+' is text only. Pick a Gemini model, Nemotron Super VL, or Nano Omni for attachments.'),{status:400});
++  return [...parts.filter(part=>part.text).map(part=>({type:'text',text:part.text})),...media.map(part=>{
++   const mime=String(part.inlineData.mimeType||''),data=part.inlineData.data;
++   if(mime.startsWith('image/')){
++    if(!supportsVision(id))throw Object.assign(new Error(provider+' / '+modelName+' does not accept images.'),{status:400});
++    return {type:'image_url',image_url:{url:'data:'+mime+';base64,'+data}};
++   }
++   if(mime.startsWith('audio/')){
++    const format=mime.includes('wav')?'wav':mime.includes('mpeg')||mime.includes('mp3')?'mp3':null;
++    if(!supportsAudio(id)||!format)throw Object.assign(new Error(provider+' / '+modelName+' accepts audio only as wav or mp3 (Nano Omni models).'),{status:400});
++    return {type:'input_audio',input_audio:{data,format}};
++   }
++   throw Object.assign(new Error('PDF attachments are supported on Gemini models only.'),{status:400});
++  })];
++ };
++ const baseBody={model,messages:[{role:'system',content:system},...request.contents.map(c=>({role:c.role==='model'?'assistant':'user',content:toParts(c.parts,model)}))],max_tokens:request.generationConfig?.maxOutputTokens||4096};
+  const positive=(value,fallback)=>{const n=Number(value);return Number.isFinite(n)&&n>0?n:fallback;};
+  const firstTokenMs=positive(process.env.EXTERNAL_FIRST_TOKEN_MS,45000),idleMs=positive(process.env.EXTERNAL_IDLE_MS,45000),totalMs=positive(process.env.EXTERNAL_TOTAL_MS,120000);
+  const wantStream=process.env.EXTERNAL_STREAM!=='false';
+diff --git a/web/lib/provider-routing.js b/web/lib/provider-routing.js
+index 77f4ce0..c0ef9cf 100644
+--- a/web/lib/provider-routing.js
++++ b/web/lib/provider-routing.js
+@@ -12,9 +12,13 @@ export function exceedsGroqBudget(id,request){
+ // drop requests without answering. Those transient upstream failures move to
+ // the Gemini fallback with the context preserved. Rate limits (429) are not
+ // included: the browser already backs off, and silently spending the scarce
+-// Gemini daily quota would hide the real problem.
+-const failoverUpstream=error=>!!error&&(['TimeoutError','AbortError'].includes(error.name)||error instanceof TypeError||[413,502,503,504].includes(error.status));
+-export async function generateWithOverflow(id,request,{generate,fallback,onFallback=()=>{}}){
++// Gemini daily quota would hide the real problem. Stages that overflow onto
++// ANOTHER FREE provider (the Nemotron Ultra/Super text chain, the Super VL +
++// OpenRouter Omni vision chain) pass a wider failoverOn predicate instead: a
++// shared free-endpoint 429 there is routine, and the next hop costs nothing,
++// so failing the turn would be worse.
++export const failoverUpstream=error=>!!error&&(['TimeoutError','AbortError'].includes(error.name)||error instanceof TypeError||[413,502,503,504].includes(error.status));
++export async function generateWithOverflow(id,request,{generate,fallback,failoverOn=failoverUpstream,onFallback=()=>{}}){
+  const overflow=async(original,reason)=>{
+   if(!fallback){
+    // Without a fallback the caller must see the real upstream failure.
+@@ -27,7 +31,7 @@ export async function generateWithOverflow(id,request,{generate,fallback,onFallb
+  try{return {...await generate(id,request),modelUsed:id};}
+  catch(error){
+   if(id.startsWith('groq:')&&error.status===413)return overflow(null,'budget');
+-  if(isExternal(id)&&failoverUpstream(error))return overflow(error,'failover');
++  if(isExternal(id)&&failoverOn(error))return overflow(error,'failover');
+   throw error;
+  }
+ }
+diff --git a/web/lib/transcribe.js b/web/lib/transcribe.js
+new file mode 100644
+index 0000000..4c955be
+--- /dev/null
++++ b/web/lib/transcribe.js
+@@ -0,0 +1,70 @@
++import {requestFetch as fetch} from './request-control.js';
++import {ready,providers} from './multi-provider.js';
++// Voice messages become text before they ever reach the persona model: the
++// recording is transcribed on a free endpoint, then the transcript rides the
++// normal text chain (Nemotron Ultra, with Gemini as the last resort). This
++// keeps one voice path for every chat model instead of per-model audio taps.
++const GROQ_TRANSCRIBE='groq:openai/whisper-large-v3-turbo',NIM_OMNI='nim:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning';
++// Vercel serverless bodies cap at ~4.5 MB JSON; keep the base64 payload at
++// 4.3 M chars (≈3.1 MB decoded) so the request envelope always fits.
++const MAX_B64_CHARS=4_300_000;
++const GROQ_FORMATS={'audio/webm':'webm','audio/ogg':'ogg','audio/opus':'opus','audio/wav':'wav','audio/x-wav':'wav','audio/mpeg':'mp3','audio/mp3':'mp3','audio/mp4':'m4a','audio/x-m4a':'m4a','audio/flac':'flac'};
++export const transcribeReady=()=>ready(GROQ_TRANSCRIBE)||ready(NIM_OMNI);
++async function groqTranscribe(mime,data,{signal},fetcher){
++ const form=new FormData();
++ form.append('file',new Blob([Buffer.from(data,'base64')],{type:mime}),'voice.'+(GROQ_FORMATS[mime]||'webm'));
++ form.append('model','whisper-large-v3-turbo');
++ form.append('response_format','json');
++ form.append('temperature','0');
++ const response=await fetcher(providers.groq.base+'/audio/transcriptions',{method:'POST',headers:{Authorization:'Bearer '+(process.env[providers.groq.key]||'')},body:form,signal});
++ if(!response.ok){
++  let detail;try{detail=await response.json();}catch{}
++  const message=String(detail?.error?.message||detail?.message||'').slice(0,300);
++  throw Object.assign(new Error('Groq transcription failed (HTTP '+response.status+').'+(message?' '+message:'')),{status:response.status===429?429:response.status>=500?503:502,retryAfter:response.headers.get('retry-after')});
++ }
++ const out=await response.json();
++ if(typeof out.text!=='string')throw Object.assign(new Error('Groq transcription returned no text.'),{status:502});
++ return out.text;
++}
++async function nimOmniTranscribe(mime,data,{signal},fetcher){
++ // Nano Omni accepts raw wav/mp3; used when Groq is down and for codecs it
++ // cannot serve. A non-streaming call keeps this path simple and small.
++ const response=await fetcher(providers.nim.base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+(process.env[providers.nim.key]||'')},body:JSON.stringify({model:'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',messages:[{role:'user',content:[{type:'text',text:'Transcribe this audio recording. Return only the words that are spoken, with no commentary.'},{type:'input_audio',input_audio:{data,format:mime.includes('wav')?'wav':'mp3'}}]}],max_tokens:2048,stream:false}),signal});
++ if(!response.ok){
++  let detail;try{detail=await response.json();}catch{}
++  const message=String(detail?.error?.message||detail?.detail||detail?.message||'').slice(0,300);
++  throw Object.assign(new Error('NIM Omni transcription failed (HTTP '+response.status+').'+(message?' '+message:'')),{status:response.status===429?429:response.status>=500?503:502});
++ }
++ const out=await response.json(),text=out.choices?.[0]?.message?.content;
++ if(typeof text!=='string'||!text.trim())throw Object.assign(new Error('NIM Omni transcription returned no text.'),{status:502});
++ return text.trim();
++}
++export async function transcribeAudio(audio,{signal}={},fetcher=fetch){
++ const mime=String(audio?.mime||''),data=String(audio?.data||'');
++ if(!GROQ_FORMATS[mime]&&!(mime.startsWith('audio/')&&data))throw Object.assign(new Error('Unsupported audio format. Record as webm, ogg, wav, mp3 or m4a.'),{status:400});
++ if(!data||data.length%4||!/^[A-Za-z0-9+/]+={0,2}$/.test(data))throw Object.assign(new Error('The audio payload is not valid base64.'),{status:400});
++ if(data.length>MAX_B64_CHARS)throw Object.assign(new Error('The recording is too long (about 3.5 MB of audio). Trim it and try again.'),{status:413});
++ const groqReady=ready(GROQ_TRANSCRIBE),nimReady=ready(NIM_OMNI);
++ if(!groqReady&&!nimReady)throw Object.assign(new Error('Voice transcription needs the Groq free tier or an NVIDIA key. Neither is enabled.'),{status:503});
++ let groqError;
++ if(groqReady){
++  try{return (await groqTranscribe(mime,data,{signal},fetcher)).trim();}
++  catch(error){groqError=error;if(signal?.aborted)throw error;}
++ }
++ const omniEligible=mime.includes('wav')||mime.includes('mpeg')||mime.includes('mp3');
++ if(nimReady&&omniEligible){
++  try{return await nimOmniTranscribe(mime,data,{signal},fetcher);}
++  catch(error){if(signal?.aborted)throw error;if(!groqReady)throw error;}
++ }
++ throw groqError||Object.assign(new Error('No transcription provider accepted this recording. Try again or record as wav/mp3.'),{status:502});
++}
++// Mounts POST /api/transcribe. Returns true when the route was handled.
++export async function transcribeRoute({req,route,readBody,send,fail,signal}){
++ if(route!=='/api/transcribe')return false;
++ if(req.method!=='POST')throw fail('Use POST to transcribe audio.',405);
++ if(!transcribeReady())throw fail('Voice transcription is not enabled. Confirm the Groq free tier or add an NVIDIA key.',503);
++ const body=await readBody(req,5_000_000);
++ if(!body||typeof body!=='object'||!body.audio||typeof body.audio.mime!=='string'||typeof body.audio.data!=='string')throw fail('Send {audio:{mime,data}} with base64 audio.');
++ const text=await transcribeAudio(body.audio,{signal});
++ return send(200,{text});
++}
+diff --git a/web/public/index.html b/web/public/index.html
+index 88153b5..3c45a20 100644
+--- a/web/public/index.html
++++ b/web/public/index.html
+@@ -7,9 +7,9 @@
+ <main>
+ <section id="chat" class="view"><div class="chat-history-bar"><img src="/capri-profile.avif" alt="Capri"><div class="chat-identity"><strong>CAPRI</strong><small>● &nbsp; YOUR LINE IS OPEN</small></div><span id="capri-face" role="img" aria-label="Capri · Attentive"><i></i><i></i></span><small id="sync-status" role="status"></small><button id="resume-chat" hidden>Resume reply</button><button id="pause-chat" title="Stop active chat requests and clear queued replies">Stop all</button></div><div id="setup" hidden></div><div class="scroll" id="scroll"><div id="welcome"><img class="capri-avatar" src="/capri-profile.avif" alt="Capri"><span class="welcome-code">CPR—01 &nbsp; / &nbsp; SIGNAL ACQUIRED</span><h1>CAPRICORN</h1><div id="gr" class="who"></div></div><button type="button" id="older-messages" hidden>Load older messages</button><div id="msgs" aria-live="polite"></div></div>
+ <footer><div id="err" role="alert" hidden></div><form id="f"><div id="att"></div><input type="file" id="file" accept="image/*,application/pdf" multiple hidden>
+- <button type="button" id="camera" aria-label="Camera (coming later)" title="Camera · coming later"><svg viewBox="0 0 24 24"><path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/></svg></button>
++ <button type="button" id="camera" aria-label="Camera snapshot" title="Camera snapshot"><svg viewBox="0 0 24 24"><path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/></svg></button>
+  <textarea id="q" rows="1" maxlength="4000" placeholder="Message Capri…" aria-label="Message"></textarea>
+- <div class="composer-actions"><button type="button" id="overclock" aria-label="Overclock: deeper research" title="Overclock · deeper research" aria-pressed="false"><img src="/overclock.png" alt=""></button><button type="button" id="voice" aria-label="Voice message (coming later)" title="Voice messages · coming later"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg></button><button type="button" id="add" aria-label="Attach photo or file" title="Attach photo or PDF"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/></svg></button><div class="send-stack"><button id="send" aria-label="Send"><svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9L2 9zM11 13 11 11 22 2"/></svg></button></div></div></form>
++ <div class="composer-actions"><button type="button" id="overclock" aria-label="Overclock: deeper research" title="Overclock · deeper research" aria-pressed="false"><img src="/overclock.png" alt=""></button><button type="button" id="voice" aria-label="Voice message" title="Voice message"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg></button><button type="button" id="scr" aria-label="Screen snapshot" title="Screen snapshot" hidden><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button><button type="button" id="add" aria-label="Attach photo or file" title="Attach photo or PDF"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/></svg></button><div class="send-stack"><button id="send" aria-label="Send"><svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9L2 9zM11 13 11 11 22 2"/></svg></button></div></div></form>
+  <div class="chat-options"><div class="pick"><button type="button" id="mp" class="mb" aria-haspopup="true" aria-label="Model">MODEL⌄</button><div id="pm" hidden></div></div><input type="hidden" id="model"><div hidden><button id="mc" type="button"></button><button id="mv" type="button"></button></div><input type="hidden" id="mode" value="general"><select id="vault" aria-label="Vault" hidden></select><input type="checkbox" id="concise" hidden><span id="token-count" class="token-count">0</span></div></footer></section>
+ <section id="notes" class="view" hidden></section>
+ <section id="quick" class="view" hidden></section>
+diff --git a/web/public/media-capture.js b/web/public/media-capture.js
+new file mode 100644
+index 0000000..664e111
+--- /dev/null
++++ b/web/public/media-capture.js
+@@ -0,0 +1,63 @@
++// Browser capture helpers for the free multimodal chain. Voice recordings go
++// to /api/transcribe (Groq whisper, NIM Omni fallback); camera/screen
++// snapshots become JPEG frames that ride the normal image attachment path.
++const JPEG_MAX = 1600; // match the attachment shrinker so sizes stay comparable
++const VOICE_MAX_MS = 240000; // auto-stop at 4 min; 24 kbps keeps it far under the body cap
++async function frameToJpeg(video) {
++  const k = Math.min(1, JPEG_MAX / Math.max(video.videoWidth, video.videoHeight));
++  const c = document.createElement('canvas');
++  c.width = Math.round(video.videoWidth * k); c.height = Math.round(video.videoHeight * k);
++  c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
++  const blob = await new Promise(ok => c.toBlob(ok, 'image/jpeg', .85));
++  video.srcObject.getTracks().forEach(t => t.stop());
++  return blob;
++}
++async function frameFromStream(stream) {
++  const video = document.createElement('video');
++  video.srcObject = stream; video.muted = true; video.playsInline = true;
++  await video.play();
++  await new Promise(ok => setTimeout(ok, 350)); // let exposure settle
++  try { return await frameToJpeg(video); }
++  catch (e) { stream.getTracks().forEach(t => t.stop()); throw e; }
++}
++export function captureSupported() { return !!navigator.mediaDevices?.getUserMedia; }
++export async function snapshotCamera() {
++  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1920 } }, audio: false });
++  return frameFromStream(stream);
++}
++export async function snapshotScreen() {
++  const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
++  return frameFromStream(stream);
++}
++export function voiceSupported() {
++  return typeof window.MediaRecorder === 'function' && captureSupported();
++}
++// Returns {stop(): Promise<{mime, data}>}; data is base64 without the data: prefix.
++export async function recordVoice() {
++  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
++  const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].find(t => MediaRecorder.isTypeSupported(t)) || '';
++  const rec = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 24000 });
++  const chunks = [];
++  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
++  let stopped;
++  const done = new Promise(ok => {
++    stopped = () => { stream.getTracks().forEach(t => t.stop()); ok(new Blob(chunks, { type: rec.mimeType || 'audio/webm' })); };
++    rec.onstop = stopped;
++  });
++  rec.start(250);
++  const timer = setTimeout(() => { if (rec.state !== 'inactive') rec.stop(); }, VOICE_MAX_MS);
++  return {
++    stop() {
++      clearTimeout(timer);
++      if (rec.state === 'inactive') return done.then(blob => toPayload(blob));
++      rec.stop();
++      return done.then(blob => toPayload(blob));
++    }
++  };
++}
++async function toPayload(blob) {
++  const mime = (blob.type || 'audio/webm').split(';')[0];
++  const r = new FileReader();
++  const data = await new Promise((ok, no) => { r.onload = () => ok(r.result.split(',')[1]); r.onerror = no; r.readAsDataURL(blob); });
++  return { mime, data };
++}
+diff --git a/web/public/shell.js b/web/public/shell.js
+index 13e76c6..91c5059 100644
+--- a/web/public/shell.js
++++ b/web/public/shell.js
+@@ -10,6 +10,7 @@ import {bubbleDelay,turnHistory} from '/conversation-flow.js';
+ import {scheduledTime} from '/capture.js';
+ import {mountAgenda} from '/agenda.js';
+ import {captureIntent,reminderQuery} from '/capture.js';
++import {recordVoice,snapshotCamera,snapshotScreen,voiceSupported,captureSupported} from '/media-capture.js';
+ import {queueJump,clearScan,showScan,stopFlight} from '/scan-path.js';
+ import {readChatStream} from '/chat-stream.js';
+ import {setExpression} from '/expression.js';
+@@ -431,7 +432,45 @@ $('overclock').onclick=()=>{$('concise').checked=!$('concise').checked;$('concis
+ $('concise').onchange=()=>{$('overclock').setAttribute('aria-pressed',String(!$('concise').checked));try{localStorage.setItem('aria.mirage',$('concise').checked?'age':'mir');}catch{}};
+ const app=$('app');try{const s=localStorage.getItem('aria.history.collapsed');if(s===null?matchMedia('(max-width:860px)').matches:s==='true')app.classList.add('hc')}catch{}
+ $('ht').onclick=()=>{const c=app.classList.toggle('hc');try{localStorage.setItem('aria.history.collapsed',String(c))}catch{}};
+-$('voice').setAttribute('aria-disabled','true');
++// Voice messages: record in the browser, transcribe on a free server endpoint
++// (Groq whisper-large-v3-turbo, NIM Nano Omni fallback), then drop the
++// transcript into the composer so it can be reviewed or edited before sending.
++let recording=null;
++async function handleVoiceStop(){
++ const active=recording;recording=null;
++ $('voice').classList.remove('rec');$('voice').setAttribute('aria-pressed','false');$('voice').title='Voice message';
++ try{
++  err('Transcribing…');
++  const {mime,data}=await active.stop();
++  if(!data.length){err('');return;}
++  const r=await api('transcribe',{audio:{mime,data}});
++  const q=$('q');q.value=(q.value?q.value+' ':'')+r.text.trim();resizeComposer();q.focus();err('');
++ }catch(e){err(requestErrorText(e,'Transcription failed.'));}
++}
++$('voice').onclick=async()=>{
++ if(recording){await handleVoiceStop();return;}
++ if(!voiceSupported()){err('Voice recording is not supported in this browser.');return;}
++ try{
++  recording=await recordVoice();
++  $('voice').classList.add('rec');$('voice').setAttribute('aria-pressed','true');$('voice').title='Stop recording and transcribe';
++  err('Recording… press the mic again to stop (max 4 minutes).');
++ }catch(e){err(e?.name==='NotAllowedError'?'Microphone access was denied.':'Could not start recording.');}
++};
++// Camera and screen snapshots join the normal attachment queue; attachment
++// turns ride the free vision chain server-side.
++async function pushCapture(promise,label){
++ try{
++  const blob=await promise,data=await b64(blob);
++  if(files.reduce((n,x)=>n+x.data.length,0)+data.length>3.9e6){err('Attachments are too large (about 2.8 MB total).');return;}
++  files.push({mime:'image/jpeg',data,name:label});renderAtt();err('');
++ }catch(e){err(e?.name==='NotAllowedError'?'Capture was denied or cancelled.':requestErrorText(e,'Capture failed.'));}
++}
++if(captureSupported()){
++ $('camera').title='Camera snapshot';$('camera').setAttribute('aria-label','Camera snapshot');
++ $('scr').hidden=false;
++ $('camera').onclick=()=>pushCapture(snapshotCamera(),'camera snapshot');
++ $('scr').onclick=()=>pushCapture(snapshotScreen(),'screen snapshot');
++}
+ function resizeComposer(){const q=$('q');q.style.height='28px';q.style.height=Math.min(130,q.scrollHeight)+'px';q.style.overflowY=q.scrollHeight>130?'auto':'hidden';}
+ $('q').addEventListener('input',resizeComposer);
+ window.addEventListener('resize',resizeComposer);
+diff --git a/web/public/site.css b/web/public/site.css
+index 77dfb0e..6f0f50d 100644
+--- a/web/public/site.css
++++ b/web/public/site.css
+@@ -1596,6 +1596,8 @@ input[type=checkbox]:not(.sw>input):focus-visible{outline:2px solid var(--acid);
+ }
+ #camera{grid-column:1;grid-row:2;color:var(--acid)}
+ #camera:hover,.composer-actions button:hover{background:#2a1640;color:var(--bone);transform:translateY(-1px)}
++#voice.rec{background:#3a0a1a;color:#ff5470;animation:voice-pulse 1.2s ease-in-out infinite}
++@keyframes voice-pulse{50%{background:#571229;transform:scale(1.06)}}
+ #chat button svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+ .composer-actions{grid-column:3;grid-row:2;display:flex;gap:7px;align-items:center;flex-shrink:0}
+ .send-stack{position:relative}
+diff --git a/web/tests/external-failover.test.mjs b/web/tests/external-failover.test.mjs
+index f69e574..9dcba69 100644
+--- a/web/tests/external-failover.test.mjs
++++ b/web/tests/external-failover.test.mjs
+@@ -1,7 +1,7 @@
+ import test from 'node:test';
+ import assert from 'node:assert/strict';
+-import {externalGenerate,providers} from '../lib/multi-provider.js';
+-import {generateWithOverflow} from '../lib/provider-routing.js';
++import {externalGenerate,providers,externalModels,freeAllowed,ready} from '../lib/multi-provider.js';
++import {generateWithOverflow,failoverUpstream} from '../lib/provider-routing.js';
+ 
+ const request={systemInstruction:{parts:[{text:'system'}]},contents:[{role:'user',parts:[{text:'hello'}]}],generationConfig:{maxOutputTokens:100}};
+ const keys=()=>{const snapshot={};for(const provider of ['groq','nim','deepseek','openrouter','zai']){const k=providers[provider].key;snapshot[k]=process.env[k];process.env[k]='fixture';}snapshot.CAPRI_FREE_ONLY=process.env.CAPRI_FREE_ONLY;process.env.CAPRI_FREE_ONLY='false';return snapshot;};
+@@ -108,3 +108,68 @@ test('groq oversized stages still overflow by budget, not by failure',async()=>{
+  assert.equal(fallbackUsed,1);
+  assert.equal(result.answer,'g');
+ });
++
++test('the OpenRouter free GLM passes free-only gating with just the key',async t=>{
++ const snapshot=keys();t.after(()=>restore(snapshot));
++ process.env.CAPRI_FREE_ONLY='true';
++ assert.ok(externalModels.some(m=>m.id==='openrouter:z-ai/glm-5.3-flash:free'));
++ assert.equal(freeAllowed('openrouter:z-ai/glm-5.3-flash:free'),true);
++ const hadKey=process.env.OPENROUTER_API_KEY;
++ if(hadKey==='fixture')delete process.env.OPENROUTER_API_KEY;
++ assert.equal(ready('openrouter:z-ai/glm-5.3-flash:free'),false);
++ process.env.OPENROUTER_API_KEY='fixture';
++ assert.equal(ready('openrouter:z-ai/glm-5.3-flash:free'),true);
++ assert.equal(freeAllowed('openrouter:z-ai/glm-5.3-flash'),false);
++});
++
++test('a shared free-endpoint 429 overflows only when the stage opts in',async()=>{
++ let fallbackUsed=0;
++ const failing={generate:async()=>{throw Object.assign(new Error('OpenRouter / z-ai/glm-5.3-flash:free failed (HTTP 429).'),{status:429});},fallback:async()=>{fallbackUsed++;return {answer:'x',truncated:false};}};
++ await assert.rejects(generateWithOverflow('openrouter:z-ai/glm-5.3-flash:free',request,{...failing}),{status:429});
++ assert.equal(fallbackUsed,0);
++ const result=await generateWithOverflow('openrouter:z-ai/glm-5.3-flash:free',request,{...failing,failoverOn:error=>failoverUpstream(error)||error.status===429||error.status===402});
++ assert.equal(result.answer,'x');
++ assert.equal(fallbackUsed,1);
++});
++
++test('the free GLM chain runs OpenRouter, then NIM, then Gemini',async()=>{
++ const hops=[];let nimCalls=0,geminiCalls=0;
++ const outer=generateWithOverflow('openrouter:z-ai/glm-5.3-flash:free',request,{
++  generate:async(model,input)=>{
++   if(model.startsWith('openrouter:'))throw Object.assign(new Error('OpenRouter / z-ai/glm-5.3-flash:free failed (HTTP 429).'),{status:429});
++   nimCalls++;return {answer:'from nim',truncated:false,usage:null};
++  },
++  failoverOn:error=>failoverUpstream(error)||error.status===429||error.status===402,
++  onFallback:reason=>hops.push('outer:'+reason),
++  fallback:async input=>generateWithOverflow('nim:z-ai/glm-5.3-flash',input,{
++   generate:async(model,input)=>{nimCalls++;return {answer:'from nim',truncated:false,usage:null};},
++   onFallback:reason=>hops.push('nim:'+reason),
++   fallback:async input=>{geminiCalls++;return {answer:'from gemini',truncated:false};}
++  })
++ });
++ const result=await outer;
++ assert.equal(result.answer,'from nim');
++ assert.equal(result.modelUsed,'nim:z-ai/glm-5.3-flash');
++ assert.deepEqual(hops,['outer:failover']);
++ assert.equal(nimCalls,1);
++ assert.equal(geminiCalls,0);
++ // Both free hops down: only then is the scarce Gemini quota spent.
++ let secondGemini=0;
++ const exhausted=await generateWithOverflow('openrouter:z-ai/glm-5.3-flash:free',request,{
++  generate:async model=>{
++   if(model.startsWith('openrouter:'))throw Object.assign(new Error('OpenRouter / z-ai/glm-5.3-flash:free failed (HTTP 429).'),{status:429});
++   throw Object.assign(new Error('NIM / z-ai/glm-5.3-flash produced no output within 45 seconds.'),{status:504});
++  },
++  failoverOn:error=>failoverUpstream(error)||error.status===429||error.status===402,
++  onFallback:reason=>hops.push('outer:'+reason),
++  fallback:async input=>generateWithOverflow('nim:z-ai/glm-5.3-flash',input,{
++   generate:async()=>{throw Object.assign(new Error('NIM / z-ai/glm-5.3-flash produced no output within 45 seconds.'),{status:504});},
++   onFallback:reason=>hops.push('nim:'+reason),
++   fallback:async input=>{secondGemini++;return {answer:'from gemini',truncated:false,modelUsed:'gemini-3.5-flash-lite'};}
++  })
++ });
++ assert.equal(exhausted.answer,'from gemini');
++ assert.equal(exhausted.modelUsed,'gemini-3.5-flash-lite');
++ assert.deepEqual(hops,['outer:failover','outer:failover','nim:failover']);
++ assert.equal(secondGemini,1);
++});
+diff --git a/web/tests/multi-provider.test.mjs b/web/tests/multi-provider.test.mjs
+index 1bbee7a..0e25802 100644
+--- a/web/tests/multi-provider.test.mjs
++++ b/web/tests/multi-provider.test.mjs
+@@ -1,6 +1,6 @@
+ import test from 'node:test';import assert from 'node:assert/strict';import {freeAllowed,externalGenerate,providers,discoverModels,externalModels} from '../lib/multi-provider.js';import {settingsOf} from '../lib/core-settings.js';
+ const request={systemInstruction:{parts:[{text:'system'}]},contents:[{role:'user',parts:[{text:'hello'}]}],generationConfig:{maxOutputTokens:100,responseMimeType:'application/json'}};
+ for(const provider of ['groq','nim','deepseek','openrouter'])test(provider+' translates and counts usage',async t=>{const freeMode=process.env.CAPRI_FREE_ONLY;process.env.CAPRI_FREE_ONLY='false';t.after(()=>{if(freeMode===undefined)delete process.env.CAPRI_FREE_ONLY;else process.env.CAPRI_FREE_ONLY=freeMode;});const key=providers[provider].key,old=process.env[key];process.env[key]='fixture';t.after(()=>{if(old===undefined)delete process.env[key];else process.env[key]=old;});const result=await externalGenerate(provider+':test',request,{},async(url,options)=>{assert.equal(url,providers[provider].base+'/chat/completions');const b=JSON.parse(options.body);assert.equal(b.model,'test');assert.match(b.messages[0].content,/valid JSON/);return Response.json({choices:[{message:{content:'{}'},finish_reason:'length'}],usage:{prompt_tokens:10,completion_tokens:2,total_tokens:12}});});assert.equal(result.usage.totalTokenCount,12);assert.equal(result.truncated,true);await assert.rejects(externalGenerate(provider+':test',{...request,contents:[{parts:[{inlineData:{mimeType:'image/png',data:'abc'}}]}]}),{status:400});await assert.rejects(externalGenerate(provider+':test',request,{},async()=>Response.json({},{status:429})),{status:429});});
+-test('routing core is independently configurable',()=>{const s=settingsOf({router:'groq:openai/gpt-oss-20b'});assert.equal(s.router,'groq:openai/gpt-oss-20b');assert.equal(s.personality,'groq:openai/gpt-oss-120b');assert.throws(()=>settingsOf({router:'groq:invented'}));});
++test('routing core is independently configurable',()=>{const s=settingsOf({router:'groq:openai/gpt-oss-20b'});assert.equal(s.router,'groq:openai/gpt-oss-20b');assert.equal(s.personality,'nim:nvidia/nemotron-3-ultra-550b-a55b');assert.throws(()=>settingsOf({router:'groq:invented'}));});
+ 
+ test('free-only blocks paid routes even when a key exists',t=>{const old=process.env.CAPRI_FREE_ONLY;process.env.CAPRI_FREE_ONLY='true';t.after(()=>{if(old===undefined)delete process.env.CAPRI_FREE_ONLY;else process.env.CAPRI_FREE_ONLY=old;});assert.equal(freeAllowed('claude-haiku-5-5'),false);assert.equal(freeAllowed('deepseek:deepseek-flash'),false);assert.equal(freeAllowed('openrouter:anthropic/claude-sonnet-5.5'),false);assert.equal(freeAllowed('openrouter:openrouter/free'),true);assert.equal(freeAllowed('openrouter:example/model:free'),true);});
+diff --git a/web/tests/multimodal-chain.test.mjs b/web/tests/multimodal-chain.test.mjs
+new file mode 100644
+index 0000000..95bc694
+--- /dev/null
++++ b/web/tests/multimodal-chain.test.mjs
+@@ -0,0 +1,102 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import {externalGenerate,supportsVision,supportsAudio,providers} from '../lib/multi-provider.js';
++import {validateChat} from '../lib/models.js';
++import {transcribeAudio,transcribeReady} from '../lib/transcribe.js';
++
++const keys=()=>{const snapshot={};for(const provider of ['groq','nim','openrouter']){const k=providers[provider].key;snapshot[k]=process.env[k];process.env[k]='fixture';}for(const k of ['CAPRI_FREE_ONLY','NVIDIA_FREE_ACCESS_CONFIRMED','GROQ_FREE_TIER_CONFIRMED']){snapshot[k]=process.env[k];process.env[k]=k==='CAPRI_FREE_ONLY'?'false':'true';}return snapshot;};
++const restore=snapshot=>{for(const [k,v] of Object.entries(snapshot)){if(v===undefined)delete process.env[k];else process.env[k]=v;}};
++const sse=chunks=>new Response(new ReadableStream({start(controller){for(const chunk of chunks)controller.enqueue(new TextEncoder().encode('data: '+JSON.stringify(chunk)+'\n\n'));controller.close();}}),{headers:{'content-type':'text/event-stream'}});
++const textRequest=files=>({systemInstruction:{parts:[{text:'system'}]},contents:[{role:'user',parts:[{text:'what is this?'},...files]}],generationConfig:{maxOutputTokens:100}});
++const png={inlineData:{mimeType:'image/png',data:'aWNvbg=='}};
++const wav={inlineData:{mimeType:'audio/wav',data:'YXVkaW8='}};
++
++test('capability flags mark the multimodal legs and keep the text core plain',()=>{
++ assert.equal(supportsVision('nim:nvidia/nemotron-3.5-super-vl-120b-a12b'),true);
++ assert.equal(supportsVision('nim:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning'),true);
++ assert.equal(supportsAudio('nim:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning'),true);
++ assert.equal(supportsVision('openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'),true);
++ assert.equal(supportsVision('nim:nvidia/nemotron-3-ultra-550b-a55b'),false);
++ assert.equal(supportsAudio('nim:nvidia/nemotron-3-ultra-550b-a55b'),false);
++ assert.equal(supportsVision('nim:nvidia/nemotron-3-super-120b-a12b'),false);
++});
++
++test('image attachments become image_url data URIs on a vision model',async t=>{
++ const snapshot=keys();t.after(()=>restore(snapshot));
++ const result=await externalGenerate('nim:nvidia/nemotron-3.5-super-vl-120b-a12b',textRequest([png]),{},(url,options)=>{
++  assert.equal(url,providers.nim.base+'/chat/completions');
++  const body=JSON.parse(options.body);
++  assert.equal(body.model,'nvidia/nemotron-3.5-super-vl-120b-a12b');
++  const content=body.messages[1].content;
++  assert.deepEqual(content[0],{type:'text',text:'what is this?'});
++  assert.equal(content[1].type,'image_url');
++  assert.equal(content[1].image_url.url,'data:image/png;base64,aWNvbg==');
++  return sse([{choices:[{delta:{content:'a photo'}}]},{choices:[{finish_reason:'stop'}]}]);
++ });
++ assert.equal(result.answer,'a photo');
++});
++
++test('wav audio becomes an input_audio part only on omni models',async t=>{
++ const snapshot=keys();t.after(()=>restore(snapshot));
++ const result=await externalGenerate('nim:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',textRequest([wav]),{},(url,options)=>{
++  const body=JSON.parse(options.body);
++  assert.deepEqual(body.messages[1].content[1],{type:'input_audio',input_audio:{data:'YXVkaW8=',format:'wav'}});
++  return sse([{choices:[{delta:{content:'transcript'}}]},{choices:[{finish_reason:'stop'}]}]);
++ });
++ assert.equal(result.answer,'transcript');
++ await assert.rejects(externalGenerate('nim:nvidia/nemotron-3.5-super-vl-120b-a12b',textRequest([wav]),{},async()=>{throw new Error('must not reach the network');}),error=>error.status===400&&/wav or mp3/.test(error.message));
++});
++
++test('text-only external models still refuse attachments before any network call',async t=>{
++ const snapshot=keys();t.after(()=>restore(snapshot));
++ await assert.rejects(externalGenerate('nim:nvidia/nemotron-3-ultra-550b-a55b',textRequest([png]),{},async()=>{throw new Error('must not reach the network');}),error=>error.status===400&&/text only/.test(error.message));
++ await assert.rejects(externalGenerate('nim:nvidia/nemotron-3.5-super-vl-120b-a12b',textRequest([{inlineData:{mimeType:'application/pdf',data:'JVBERi0='}}]),{},async()=>{throw new Error('must not reach the network');}),error=>error.status===400&&/PDF/.test(error.message));
++});
++
++test('quick-chat validation allows image attachments on vision models only',async t=>{
++ const snapshot=keys();t.after(()=>restore(snapshot));
++ const file={mime:'image/png',data:'iVBORw0KGgo='};
++ const ok=validateChat({model:'nim:nvidia/nemotron-3.5-super-vl-120b-a12b',message:'look',mode:'general',files:[file]});
++ assert.equal(ok.files[0].inlineData.mimeType,'image/png');
++ assert.throws(()=>validateChat({model:'groq:openai/gpt-oss-120b',message:'look',mode:'general',files:[file]}),error=>error.status===400&&/text only/.test(error.message));
++ assert.throws(()=>validateChat({model:'nim:nvidia/nemotron-3.5-super-vl-120b-a12b',message:'look',mode:'general',files:[{mime:'application/pdf',data:'JVBERi0='}]}),/PDF/);
++});
++
++test('voice transcription rides Groq whisper and returns the text',async t=>{
++ const snapshot=keys();t.after(()=>restore(snapshot));
++ const result=await transcribeAudio({mime:'audio/webm',data:'YXVkaW8='},{},async(url,options)=>{
++  assert.equal(url,providers.groq.base+'/audio/transcriptions');
++  assert.equal(options.method,'POST');
++  assert.ok(options.body instanceof FormData);
++  assert.equal(options.body.get('model'),'whisper-large-v3-turbo');
++  return new Response(JSON.stringify({text:' hello there '}),{headers:{'content-type':'application/json'}});
++ });
++ assert.equal(result,'hello there');
++});
++
++test('when Groq fails, wav and mp3 fall back to the NIM Omni transcriber',async t=>{
++ const snapshot=keys();t.after(()=>restore(snapshot));
++ const calls=[];let step=0;
++ const result=await transcribeAudio({mime:'audio/wav',data:'YXVkaW8='},{},async(url,options)=>{
++  calls.push(url);step++;
++  if(step===1)return new Response(JSON.stringify({error:{message:'overloaded'}}),{status:500,headers:{'content-type':'application/json'}});
++  assert.equal(url,providers.nim.base+'/chat/completions');
++  const body=JSON.parse(options.body);
++  assert.equal(body.model,'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning');
++  assert.equal(body.messages[0].content[1].type,'input_audio');
++  return new Response(JSON.stringify({choices:[{message:{content:'spoken words'}}]}),{headers:{'content-type':'application/json'}});
++ });
++ assert.equal(result,'spoken words');
++ assert.equal(calls.length,2);
++});
++
++test('transcription is rejected cleanly when nothing is enabled or input is bad',async t=>{
++ const snapshot=keys();t.after(()=>restore(snapshot));
++ process.env.GROQ_API_KEY='';process.env.NVIDIA_API_KEY='';
++ delete process.env.GROQ_FREE_TIER_CONFIRMED;delete process.env.NVIDIA_FREE_ACCESS_CONFIRMED;
++ assert.equal(transcribeReady(),false);
++ await assert.rejects(transcribeAudio({mime:'audio/wav',data:'YXVkaW8='}),error=>error.status===503&&/free tier/.test(error.message));
++ process.env.GROQ_API_KEY='fixture';process.env.GROQ_FREE_TIER_CONFIRMED='true';
++ await assert.rejects(transcribeAudio({mime:'audio/flac',data:'!!!'}),error=>error.status===400&&/base64/.test(error.message));
++ await assert.rejects(transcribeAudio({mime:'audio/webm',data:'YWFh'.repeat(4_000_000)}),error=>error.status===413&&/too long/.test(error.message));
++});

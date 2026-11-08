@@ -1,5 +1,6 @@
 import {capHistory} from '../public/context-budget.js';
 import {isUuid} from './notes.js';
+import {externalModels, isExternal, ready} from './multi-provider.js';
 export const models = [
   {id:'gemini-3.5-flash-lite',name:'Gemini 3.5 Flash Lite',purpose:'Everyday · recommended',rpm:15,rpd:500},
   {id:'gemini-3.1-flash-lite',name:'Gemini 3.1 Flash Lite',purpose:'Everyday · alternative',rpm:15,rpd:500},
@@ -8,9 +9,21 @@ export const models = [
   {id:'gemini-3-flash',name:'Gemini 3 Flash',purpose:'Compatibility / comparison',rpm:5,rpd:20},
   {id:'gemini-2.5-flash',name:'Gemini 2.5 Flash',purpose:'Earlier-model comparison',rpm:5,rpd:20}
 ];
+// External models (Groq, NIM, DeepSeek, OpenRouter, Z.ai, Anthropic) that are ready
+export function getExternalModels() {
+  return externalModels.filter(m => isExternal(m.id) && ready(m.id)).map(m => ({
+    id: m.id,
+    name: m.name,
+    purpose: m.provider === 'nim' ? 'NVIDIA NIM' : m.provider === 'groq' ? 'Groq' : m.provider === 'deepseek' ? 'DeepSeek' : m.provider === 'openrouter' ? 'OpenRouter' : m.provider === 'zai' ? 'Z.ai' : 'Claude',
+    rpm: 0, rpd: 0
+  }));
+}
+export function allChatModels() {
+  return [...models, ...getExternalModels()];
+}
 export function validateChat(body) {
-  const model=models.find(m=>m.id===body.model);
-  if(!model) throw new Error('Choose a supported Gemini chat model.');
+  const model = allChatModels().find(m => m.id === body.model);
+  if(!model) throw new Error('Choose a supported chat model.');
   if(typeof body.message!=='string'||!body.message.trim()||body.message.length>4000) throw new Error('Enter a question of 1–4,000 characters.');
   if(!['general','vault'].includes(body.mode)) throw new Error('Choose general chat or vault search.');
   const vault=body.vault===undefined||body.vault==='all'?null:body.vault;
@@ -33,6 +46,10 @@ export function validateChat(body) {
     const b = Buffer.from(f.data, 'base64');
     const valid = f.mime === 'image/png' ? b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) : f.mime === 'image/jpeg' ? b[0] === 255 && b[1] === 216 && b[2] === 255 : f.mime === 'image/webp' ? b.toString('ascii',0,4) === 'RIFF' && b.toString('ascii',8,12) === 'WEBP' : b.toString('ascii',0,5) === '%PDF-';
     if (!valid || bytes > 3_900_000) throw badFile();
+  }
+  const isExt = isExternal(model.id);
+  if (isExt && files.length > 0) {
+    throw Object.assign(new Error('External models do not support file attachments. Use a Gemini model for images/PDFs.'), {status: 400});
   }
   return {model:model.id,message:body.message.trim(),mode:body.mode,history:capHistory(history,body.settings?.max_history_tokens||3000),vault,concise,depth,...(body.followupCache?{followupCache:body.followupCache}:{}),files:files.map(({mime,data})=>({inlineData:{mimeType:mime,data}}))};
 }

@@ -21,7 +21,7 @@ import {personalize} from '../lib/personality.js';
 import {chatRoutes} from '../lib/chat-routes.js';
 import {archiveChat} from '../lib/history-vault.js';
 import {estimateText,normalizeUsage,addUsage,callUsage} from '../public/token-usage.js';
-import {models,validateChat} from '../lib/models.js';
+import {models, allChatModels, validateChat} from '../lib/models.js';
 import {noteRoutes} from '../lib/notes-api.js';
 import {gemini,geminiStream,embed} from '../lib/providers.js';
 import {describeVault} from '../lib/vault-describe.js';
@@ -84,7 +84,7 @@ async function handleRequest(req,res,generationController){
   const send=(status,data)=>{if(res.destroyed||res.writableEnded)return;if(streaming){emit(data.error?'error':'result',{...data,...(data.error?{status}:{})});res.end();}else{res.statusCode=status;res.end(JSON.stringify(data));}};
   try{
     const route=new URL(req.url,'http://localhost').pathname.replace(/\/$/,'');
-    if(req.method==='GET'&&route==='/api/status')return send(200,{configured:!!configured(),geminiReady:!!process.env.GEMINI_API_KEY&&process.env.GEMINI_FREE_TIER_CONFIRMED==='true',models,embedding:{id:'gemini-embedding-2',enabled:process.env.ENABLE_SEMANTIC_SEARCH==='true',rpm:100,rpd:1000,tpm:30000},deepseekEnabled:ready('deepseek:deepseek-flash')});
+    if(req.method==='GET'&&route==='/api/status')return send(200,{configured:!!configured(),geminiReady:!!process.env.GEMINI_API_KEY&&process.env.GEMINI_FREE_TIER_CONFIRMED==='true',models:allChatModels(),embedding:{id:'gemini-embedding-2',enabled:process.env.ENABLE_SEMANTIC_SEARCH==='true',rpm:100,rpd:1000,tpm:30000},deepseekEnabled:ready('deepseek:deepseek-flash')});
     if(!configured())throw fail('Setup is incomplete. Add the Supabase environment variables in Vercel.',503);
     if(req.method==='POST'){
       if(req.headers['content-type']?.split(';')[0]!=='application/json')throw fail('JSON required.',415);
@@ -170,9 +170,13 @@ async function handleRequest(req,res,generationController){
     }
     if(req.method==='POST'&&route==='/api/note-format'){
       const body=await readBody(req,420000),content=cleanContent(body.content);
-      if(!models.some(m=>m.id===body.model))throw fail('Choose a supported model.');
-      if(!process.env.GEMINI_API_KEY||process.env.GEMINI_FREE_TIER_CONFIRMED!=='true')throw fail('Gemini is not enabled.',503);
+      if(!allChatModels().some(m=>m.id===body.model))throw fail('Choose a supported model.');
+      const isExt=isExternal(body.model);
+      if(isExt&&!ready(body.model))throw fail('Provider is not enabled under the current key/free-only policy.',503);
       const layout=await proposeLayout(content,async request=>{
+        if(isExt){
+          return {...await externalGenerate(body.model,request,{signal:generationController.signal}),modelUsed:body.model};
+        }
         const ok=await sb('/rest/v1/rpc/aria_reserve',token,{p_model:body.model,p_tokens:Buffer.byteLength(JSON.stringify(request))+8192});
         if(!ok)throw fail('Model quota reached. Your text has not changed.',429);
         return gemini(body.model,request);
@@ -181,9 +185,13 @@ async function handleRequest(req,res,generationController){
     }
     if(req.method==='POST'&&route==='/api/note-segment'){
       const body=await readBody(req);
-      if(!isUuid(body.vault)||!models.some(m=>m.id===body.model))throw fail('Choose a vault and a supported model.');
-      if(!process.env.GEMINI_API_KEY||process.env.GEMINI_FREE_TIER_CONFIRMED!=='true')throw fail('Gemini is not enabled.',503);
+      if(!isUuid(body.vault)||!allChatModels().some(m=>m.id===body.model))throw fail('Choose a vault and a supported model.');
+      const isExt=isExternal(body.model);
+      if(isExt&&!ready(body.model))throw fail('Provider is not enabled under the current key/free-only policy.',503);
       const result=await segmentNote({vault:body.vault.toLowerCase(),path:body.path,sb,token,fail,generate:async request=>{
+        if(isExt){
+          return {...await externalGenerate(body.model,request,{signal:generationController.signal}),modelUsed:body.model};
+        }
         if(body.model==='gemini-3.8-flash')request={...request,generationConfig:{...request.generationConfig,maxOutputTokens:Math.max(8192,request.generationConfig.maxOutputTokens||0),thinkingConfig:{thinkingLevel:'low'}}};
         const ok=await sb('/rest/v1/rpc/aria_reserve',token,{p_model:body.model,p_tokens:Buffer.byteLength(JSON.stringify(request))+request.generationConfig.maxOutputTokens});
         if(!ok)throw fail('Model quota reached. Nothing was changed.',429);
@@ -194,14 +202,18 @@ async function handleRequest(req,res,generationController){
     if(req.method==='POST'&&route==='/api/vault-describe'){
       const body=await readBody(req),vault=isUuid(body.vault)?body.vault.toLowerCase():null;
       if(!vault)throw fail('Choose a vault.');
-      if(!models.some(m=>m.id===body.model))throw fail('Choose a supported model.');
-      if(!process.env.GEMINI_API_KEY||process.env.GEMINI_FREE_TIER_CONFIRMED!=='true')throw fail('Gemini is not enabled.',503);
+      if(!allChatModels().some(m=>m.id===body.model))throw fail('Choose a supported model.');
+      const isExt=isExternal(body.model);
+      if(isExt&&!ready(body.model))throw fail('Provider is not enabled under the current key/free-only policy.',503);
       const vaults=await sb('/rest/v1/aria_vaults?select=id,name&order=created_at.asc',token),mine=vaults.find(v=>v.id===vault);
       if(!mine)throw fail('Vault not found.',404);
       // Only notes with AI search on are ever sent, and only their paths and headings.
       const notes=await sb(`/rest/v1/aria_notes?select=path&deleted=eq.false&ai_enabled=eq.true&vault_id=eq.${vault}&order=path.asc&limit=400`,token);
       const chunks=await sb(`/rest/v1/aria_chunks?select=title&vault_id=eq.${vault}&order=title.asc&limit=300`,token);
       const description=await describeVault({vaultName:mine.name,otherVaults:vaults.filter(v=>v.id!==vault).map(v=>v.name),paths:notes.map(n=>n.path),headings:[...new Set(chunks.map(c=>c.title))]},async request=>{
+        if(isExt){
+          return {...await externalGenerate(body.model,request,{signal:generationController.signal}),modelUsed:body.model};
+        }
         if(body.model==='gemini-3.8-flash')request={...request,generationConfig:{...request.generationConfig,maxOutputTokens:Math.max(8192,request.generationConfig.maxOutputTokens||0),thinkingConfig:{thinkingLevel:'low'}}};
         const ok=await sb('/rest/v1/rpc/aria_reserve',token,{p_model:body.model,p_tokens:Buffer.byteLength(JSON.stringify(request))+request.generationConfig.maxOutputTokens});
         if(!ok)throw fail('Model quota reached. Nothing was changed.',429);

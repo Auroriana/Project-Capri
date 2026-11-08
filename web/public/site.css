@@ -4,6 +4,9 @@
    Sections retain original cascade order. Legacy CSS files are unused. */
 
 /* ============================================================================
+   NOTE: inside @scope, the page root (<html>) is matched with :scope, NOT :root or html.
+   Plain :root{} or html{} rules inside a wrapper never match and drop all tokens.
+
    HANDOFF FOR CSS EDITORS / OTHER AGENTS
 
    SOURCE OF TRUTH
@@ -101,7 +104,7 @@
 @scope (:root[data-style-page="index"]) {
 
 *{box-sizing:border-box;margin:0}
-html,body{height:100%;background:#000;color:#fff;font:14px/1.7 ui-monospace,Menlo,Consolas,monospace}
+:scope,body{height:100%;background:#000;color:#fff;font:14px/1.7 ui-monospace,Menlo,Consolas,monospace}
 button,input,select,textarea{font:inherit;color:#fff;background:#000;border:1px solid #333;border-radius:0}
 button{cursor:pointer;padding:6px 12px;transition:.2s}
 button:hover:not(:disabled){background:#fff;color:#000}
@@ -231,7 +234,7 @@ aside{position:fixed;top:56px;right:0;bottom:0;width:260px;background:#000;trans
 /* ===== style.css ===== */
 @scope (:root[data-style-page="import"]) {
 
-:root{font-family:Arial,Helvetica,sans-serif;color:#263d39;background:#f8f9f5;font-synthesis:none}*{box-sizing:border-box}body{margin:0;display:flex;height:100dvh}button,input,select,textarea{font:inherit}button{cursor:pointer;color:inherit}button:disabled{opacity:.45;cursor:wait}aside{width:252px;flex-shrink:0;background:#eef1e9;border-right:1px solid #dde3d9;padding:35px 22px 20px;display:flex;flex-direction:column}.brand{text-transform:uppercase;color:#234a41;text-decoration:none;display:flex;align-items:center;gap:11px;font-size:30px;letter-spacing:-1px}.mark{font-family:Georgia,serif;font-style:italic;color:#fff;background:#345e50;width:35px;height:35px;border-radius:12px;display:grid;place-items:center;font-size:30px}.beta{font-size:8px;letter-spacing:1.5px;margin-left:8px;color:#78877e}.new{margin:42px 0 38px;border:1px solid #c5cec1;background:transparent;padding:13px;text-align:left;border-radius:9px;font-size:13px}.section-label{font-size:9px;letter-spacing:1.8px;color:#7e8b81;padding:0 10px;margin-bottom:16px}.nav{font-size:13px;padding:13px 10px;border-radius:8px}.active{background:#dfe7db}.muted{color:#819087;margin-top:5px}small{display:block;font-size:10px;margin:7px 0 0 23px}.sidebar-note{margin-top:auto;font-size:11px;line-height:1.8;color:#687e70}.sidebar-note p{font-size:11px;color:#98a297}.dot{display:inline-block;width:5px;height:5px;background:#64866e;border-radius:50%;margin-right:5px}.account{display:flex;gap:9px;border-top:1px solid #d9e1d4;padding-top:20px;margin-top:25px;align-items:center}.avatar{display:grid;place-items:center;border:1px solid #c3cfbf;border-radius:50%;width:30px;height:30px;font-family:Georgia,serif}.account strong{font-size:10px;display:block;max-width:150px;overflow:hidden;text-overflow:ellipsis}.account small{font-size:9px;margin:4px 0;color:#8a978c}.account button{border:0;background:none;margin-left:auto}main{min-width:0;flex:1;display:flex;flex-direction:column}header{height:80px;flex-shrink:0;border-bottom:1px solid #e9ece5;display:flex;justify-content:space-between;align-items:center;padding:0 42px;font-size:11px;color:#98a298}header span:not(.badge){margin:0 13px;color:#bcc5b9}header strong{font-weight:400;color:#52685b}.badge{border:1px solid #d9e2d2;border-radius:20px;padding:7px 11px;font-size:10px;color:#6b8067}.chat-scroll{overflow:auto;flex:1;padding:35px 30px}#welcome{max-width:740px;margin:50px auto 20px}.eyebrow{font-size:9px;letter-spacing:2px;color:#7f9584}h1{font-family:Georgia,serif;font-size:clamp(36px,4.3vw,61px);font-weight:400;line-height:1.12;letter-spacing:-2px;margin:25px 0 20px}h1 em{color:#78916e;font-weight:400}#welcome>p{color:#849185;font-size:13px;line-height:1.9}.suggestions{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:38px}.suggestions button{text-align:left;background:transparent;border:1px solid #dde4d6;border-radius:10px;padding:19px 17px;color:#52684f;font-size:12px;line-height:1.7}.suggestions button:hover{background:#eef2e9}.suggestions span{display:block;font-size:8px;letter-spacing:1px;color:#92a08c;margin-bottom:15px}footer{padding:15px 30px 22px;max-width:810px;width:100%;margin:0 auto}#chat-form{background:#fff;border:1px solid #dbe2d3;border-radius:17px;box-shadow:0 6px 22px #30402c05;padding:18px 18px 12px}textarea{resize:vertical;width:100%;min-height:54px;max-height:160px;background:none;border:0;outline:0;color:#304c40;font-size:14px;line-height:1.6}textarea::placeholder{color:#a3ad9c}.composer-bottom{display:flex;align-items:center;justify-content:space-between;margin-top:10px}.controls{display:flex;gap:10px;flex-wrap:wrap}select{font-size:10px;color:#697d60;border:1px solid #e7ebdf;border-radius:6px;background:#fafbf7;max-width:210px;padding:7px}#send{border:0;border-radius:10px;background:#345e50;color:white;width:36px;height:36px;font-size:21px}.footnote{font-size:9px;color:#97a18f;display:flex;justify-content:space-between;gap:15px;margin:12px 5px 0}.notice{margin:12px 30px 0;background:#f3eddb;border:1px solid #e4d9b9;padding:12px 16px;font-size:12px;border-radius:8px;color:#75623a}#messages{max-width:740px;margin:auto}.message{padding:20px 0;border-bottom:1px solid #e5eadd;line-height:1.8;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}.message .who{font-size:10px;letter-spacing:1px;color:#7a8e71;margin-bottom:9px}.message.user{color:#71816d}.sources{white-space:normal;margin-top:12px}.sources details{border:1px solid #dce3d4;border-radius:8px;padding:10px 13px;font-size:12px;margin:6px 0}.sources p{white-space:pre-wrap}.sources small{margin:0;color:#8b967f}#error{color:#8d4031;background:#f9eae4;padding:12px;border-radius:8px;font-size:12px;margin-bottom:10px}dialog{border:1px solid #dae1d3;border-radius:20px;padding:32px;width:min(430px,92vw);color:#304c40;background:#fafbf7}dialog::backdrop{background:#263d3955;backdrop-filter:blur(5px)}dialog h2{font-family:Georgia,serif;font-weight:400;font-size:26px}dialog p{font-size:13px;line-height:1.6;color:#7b8874}dialog label{display:block;font-size:12px;margin:18px 0}dialog input{display:block;margin-top:7px;width:100%;padding:12px;border:1px solid #cdd8c4;border-radius:7px;background:white}dialog button{width:100%;padding:12px;border-radius:8px;border:0;margin-top:8px}dialog .primary{background:#345e50;color:white}#login-error{color:#993f32}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}[hidden]{display:none!important}:focus-visible{outline:2px solid #75966c;outline-offset:3px}@media(max-width:800px){aside{width:190px;padding:25px 14px}.beta{display:none}header{padding:0 22px}#welcome{margin-top:25px}.suggestions{grid-template-columns:1fr}.suggestions button{padding:12px}.suggestions span{margin-bottom:4px}}@media(max-width:580px){aside{display:none}header{height:60px;padding:0 18px}.chat-scroll{padding:20px}#welcome{margin-top:10px}h1{font-size:39px}footer{padding:12px 15px 18px}.footnote{font-size:8px}.controls{gap:5px}select{max-width:168px;font-size:9px}.suggestions{margin-top:22px;gap:7px}.notice{margin:10px 15px 0}}a.nav{display:block;color:inherit;text-decoration:none}
+:scope{font-family:Arial,Helvetica,sans-serif;color:#263d39;background:#f8f9f5;font-synthesis:none}*{box-sizing:border-box}body{margin:0;display:flex;height:100dvh}button,input,select,textarea{font:inherit}button{cursor:pointer;color:inherit}button:disabled{opacity:.45;cursor:wait}aside{width:252px;flex-shrink:0;background:#eef1e9;border-right:1px solid #dde3d9;padding:35px 22px 20px;display:flex;flex-direction:column}.brand{text-transform:uppercase;color:#234a41;text-decoration:none;display:flex;align-items:center;gap:11px;font-size:30px;letter-spacing:-1px}.mark{font-family:Georgia,serif;font-style:italic;color:#fff;background:#345e50;width:35px;height:35px;border-radius:12px;display:grid;place-items:center;font-size:30px}.beta{font-size:8px;letter-spacing:1.5px;margin-left:8px;color:#78877e}.new{margin:42px 0 38px;border:1px solid #c5cec1;background:transparent;padding:13px;text-align:left;border-radius:9px;font-size:13px}.section-label{font-size:9px;letter-spacing:1.8px;color:#7e8b81;padding:0 10px;margin-bottom:16px}.nav{font-size:13px;padding:13px 10px;border-radius:8px}.active{background:#dfe7db}.muted{color:#819087;margin-top:5px}small{display:block;font-size:10px;margin:7px 0 0 23px}.sidebar-note{margin-top:auto;font-size:11px;line-height:1.8;color:#687e70}.sidebar-note p{font-size:11px;color:#98a297}.dot{display:inline-block;width:5px;height:5px;background:#64866e;border-radius:50%;margin-right:5px}.account{display:flex;gap:9px;border-top:1px solid #d9e1d4;padding-top:20px;margin-top:25px;align-items:center}.avatar{display:grid;place-items:center;border:1px solid #c3cfbf;border-radius:50%;width:30px;height:30px;font-family:Georgia,serif}.account strong{font-size:10px;display:block;max-width:150px;overflow:hidden;text-overflow:ellipsis}.account small{font-size:9px;margin:4px 0;color:#8a978c}.account button{border:0;background:none;margin-left:auto}main{min-width:0;flex:1;display:flex;flex-direction:column}header{height:80px;flex-shrink:0;border-bottom:1px solid #e9ece5;display:flex;justify-content:space-between;align-items:center;padding:0 42px;font-size:11px;color:#98a298}header span:not(.badge){margin:0 13px;color:#bcc5b9}header strong{font-weight:400;color:#52685b}.badge{border:1px solid #d9e2d2;border-radius:20px;padding:7px 11px;font-size:10px;color:#6b8067}.chat-scroll{overflow:auto;flex:1;padding:35px 30px}#welcome{max-width:740px;margin:50px auto 20px}.eyebrow{font-size:9px;letter-spacing:2px;color:#7f9584}h1{font-family:Georgia,serif;font-size:clamp(36px,4.3vw,61px);font-weight:400;line-height:1.12;letter-spacing:-2px;margin:25px 0 20px}h1 em{color:#78916e;font-weight:400}#welcome>p{color:#849185;font-size:13px;line-height:1.9}.suggestions{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:38px}.suggestions button{text-align:left;background:transparent;border:1px solid #dde4d6;border-radius:10px;padding:19px 17px;color:#52684f;font-size:12px;line-height:1.7}.suggestions button:hover{background:#eef2e9}.suggestions span{display:block;font-size:8px;letter-spacing:1px;color:#92a08c;margin-bottom:15px}footer{padding:15px 30px 22px;max-width:810px;width:100%;margin:0 auto}#chat-form{background:#fff;border:1px solid #dbe2d3;border-radius:17px;box-shadow:0 6px 22px #30402c05;padding:18px 18px 12px}textarea{resize:vertical;width:100%;min-height:54px;max-height:160px;background:none;border:0;outline:0;color:#304c40;font-size:14px;line-height:1.6}textarea::placeholder{color:#a3ad9c}.composer-bottom{display:flex;align-items:center;justify-content:space-between;margin-top:10px}.controls{display:flex;gap:10px;flex-wrap:wrap}select{font-size:10px;color:#697d60;border:1px solid #e7ebdf;border-radius:6px;background:#fafbf7;max-width:210px;padding:7px}#send{border:0;border-radius:10px;background:#345e50;color:white;width:36px;height:36px;font-size:21px}.footnote{font-size:9px;color:#97a18f;display:flex;justify-content:space-between;gap:15px;margin:12px 5px 0}.notice{margin:12px 30px 0;background:#f3eddb;border:1px solid #e4d9b9;padding:12px 16px;font-size:12px;border-radius:8px;color:#75623a}#messages{max-width:740px;margin:auto}.message{padding:20px 0;border-bottom:1px solid #e5eadd;line-height:1.8;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}.message .who{font-size:10px;letter-spacing:1px;color:#7a8e71;margin-bottom:9px}.message.user{color:#71816d}.sources{white-space:normal;margin-top:12px}.sources details{border:1px solid #dce3d4;border-radius:8px;padding:10px 13px;font-size:12px;margin:6px 0}.sources p{white-space:pre-wrap}.sources small{margin:0;color:#8b967f}#error{color:#8d4031;background:#f9eae4;padding:12px;border-radius:8px;font-size:12px;margin-bottom:10px}dialog{border:1px solid #dae1d3;border-radius:20px;padding:32px;width:min(430px,92vw);color:#304c40;background:#fafbf7}dialog::backdrop{background:#263d3955;backdrop-filter:blur(5px)}dialog h2{font-family:Georgia,serif;font-weight:400;font-size:26px}dialog p{font-size:13px;line-height:1.6;color:#7b8874}dialog label{display:block;font-size:12px;margin:18px 0}dialog input{display:block;margin-top:7px;width:100%;padding:12px;border:1px solid #cdd8c4;border-radius:7px;background:white}dialog button{width:100%;padding:12px;border-radius:8px;border:0;margin-top:8px}dialog .primary{background:#345e50;color:white}#login-error{color:#993f32}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}[hidden]{display:none!important}:focus-visible{outline:2px solid #75966c;outline-offset:3px}@media(max-width:800px){aside{width:190px;padding:25px 14px}.beta{display:none}header{padding:0 22px}#welcome{margin-top:25px}.suggestions{grid-template-columns:1fr}.suggestions button{padding:12px}.suggestions span{margin-bottom:4px}}@media(max-width:580px){aside{display:none}header{height:60px;padding:0 18px}.chat-scroll{padding:20px}#welcome{margin-top:10px}h1{font-size:39px}footer{padding:12px 15px 18px}.footnote{font-size:8px}.controls{gap:5px}select{max-width:168px;font-size:9px}.suggestions{margin-top:22px;gap:7px}.notice{margin:10px 15px 0}}a.nav{display:block;color:inherit;text-decoration:none}
 
 .mini{border:1px solid #e7ebdf;border-radius:6px;background:#fafbf7;color:#697d60;font-size:13px;padding:5px 9px;line-height:1}
 
@@ -577,8 +580,8 @@ details.terminal-section>summary:hover .section-label{color:var(--acid)}
 /* Import / notes page. The light base in style.css is fully re-skinned here.
    Tokens come from the shared system (capri-scene.css, later in this file but
    :root custom properties resolve at computed time, so order does not matter). */
-:root{font-family:var(--font-mono);background:var(--ink);color:var(--bone)}
-html,body{background-color:var(--ink);color:var(--bone);font-family:var(--font-mono)}
+:scope{font-family:var(--font-mono);background:var(--ink);color:var(--bone)}
+:scope,body{background-color:var(--ink);color:var(--bone);font-family:var(--font-mono)}
 
 /* sidebar */
 aside{
@@ -697,7 +700,7 @@ dialog input{border-radius:0}
 @scope (:root[data-style-page="personality-vault"]) {
 /* Personality vault: a quiet reading room. Search + tree on the left,
    the selected note as one long document on the right. */
-:root{font-family:var(--font-mono);background:var(--ink);color:var(--bone)}
+:scope{font-family:var(--font-mono);background:var(--ink);color:var(--bone)}
 body{margin:0}
 header{
   position:relative;z-index:2;padding:24px 5vw;border-bottom:1px solid var(--line);
@@ -746,7 +749,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--font-mono);lin
    ========================================================================== */
 
 /* ---------- tokens (every page) ---------- */
-:root{
+:scope{
   color-scheme:dark;
   --ink:#06030a;--panel:#0d0714;--panel-2:#140a1d;--panel-3:#1b0f28;--panel-hi:#2a1640;
   --line:#2c1b3d;--line-2:#43285f;
@@ -789,7 +792,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--font-mono);lin
 *{scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
 :focus-visible{outline:2px solid var(--acid);outline-offset:2px}
 
-html,body{background-color:var(--ink);color:var(--bone);-webkit-font-smoothing:antialiased}
+:scope,body{background-color:var(--ink);color:var(--bone);-webkit-font-smoothing:antialiased}
 body{
   font-family:var(--font-mono);
   background-image:
@@ -1092,7 +1095,7 @@ input[type=checkbox]:not(.sw>input):focus-visible{outline:2px solid var(--acid);
 @scope (:root[data-style-page="index"], :root[data-style-page="import"], :root[data-style-page="personality-vault"]) {
 /* Near-black base surfaces, plus Capri's eye sprite in its single-sprite form.
    (On the chat page the eye is hidden except inside terminal windows; see conversation.css.) */
-html,body{background-color:var(--ink)}
+:scope,body{background-color:var(--ink)}
 #app,#chat,#hist,#app>aside{background-color:var(--ink)}
 
 #capri-face{
@@ -1217,13 +1220,13 @@ html,body{background-color:var(--ink)}
 
 
 /* ---------- tokens (index-only extras; shared tokens live in capri-scene) ---------- */
-:root{
+:scope{
   --hdr:56px;
   --cut-bubble-model:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,12px 100%,0 calc(100% - 12px));
   --cut-bubble-user:polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px);
 }
 
-html,body{
+:scope,body{
   height:100%;height:100dvh;background-color:var(--ink);color:var(--bone);
   font-family:var(--font-mono);-webkit-font-smoothing:antialiased;
 }
@@ -1741,7 +1744,7 @@ html,body{
    data-state (reading|skipped|failed), data-active, .minimized, .expanded.
    JS owns left/top/z-index/width/height: never set those here except as defaults.
    ========================================================================== */
-:root{
+:scope{
   --win-shape:polygon(16px 0,calc(100% - 26px) 0,100% 26px,100% 100%,10px 100%,0 calc(100% - 10px),0 16px);
   /* outer shape + the same shape inset by 2px, joined by a zero-width bridge, filled even-odd */
   --win-ring:polygon(evenodd,
@@ -1929,7 +1932,7 @@ html,body{
    MOBILE
    ========================================================================== */
 @media(max-width:760px){
-  :root{--hdr:50px}
+  :scope{--hdr:50px}
   #app>header{padding:0 12px}
   #app .logo{font-size:12px;letter-spacing:.22em}
   #app header nav{gap:3px}

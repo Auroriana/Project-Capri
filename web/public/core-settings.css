@@ -1,12 +1,63 @@
-#aria-settings{border:0;background:none;padding:0;color:inherit;cursor:pointer}#aria-settings:hover{color:#aaa}
-#core-settings{width:min(800px,94vw);max-height:90dvh;overflow:auto;padding:24px}
-#core-settings::backdrop{background:#000b}#core-settings h2{margin:0;font-size:20px;font-weight:400}
-.settings-heading,.settings-actions{display:flex;align-items:center;justify-content:space-between;gap:16px}
-#core-settings button{width:auto;margin:0;padding:8px 14px}.core-models{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-#core-settings label{display:block;margin:12px 0}#core-settings select{display:block;width:100%;margin-top:8px;padding:8px}
-#core-settings input[type=checkbox]{display:inline-grid;width:16px;height:16px;padding:0;margin-right:8px}.settings-help{color:#aaa;font-size:12px;line-height:1.6}
-.core-prompts details{border-top:1px solid #333;padding:12px 0}.core-prompts textarea{width:100%;margin-top:12px;padding:10px;resize:vertical;line-height:1.5}
-.personality-toggle{margin-top:12px;font-size:12px}.ack{color:#aaa;font-size:13px;margin-bottom:12px}
-.md.status{text-transform:uppercase;font-size:11px;letter-spacing:.3em;color:#777;white-space:normal}
-.cite-warn{color:#f07575;margin-left:10px;font-size:13px;cursor:help}
-@media(max-width:600px){.core-models{grid-template-columns:1fr}#core-settings{padding:16px}}
+/* Cyberpunk 2077 terminal — red-on-black, monospace, clipped corners, scan lines. */
+#aria-settings{border:0;background:none;padding:0;color:inherit;cursor:pointer}#aria-settings:hover{color:#ff526b}
+#core-settings{width:min(840px,94vw);max-height:90dvh;overflow:auto;padding:0;border:1px solid #4a0d14;background:#070204;color:#d8cfd0;font:12px/1.6 ui-monospace,'Cascadia Code',Consolas,monospace;letter-spacing:.03em;box-shadow:0 0 40px #ff224418,0 20px 80px #000c;clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,18px 100%,0 calc(100% - 18px))}
+#core-settings::backdrop{background:#020403cc;backdrop-filter:blur(6px)}
+#core-settings form{padding:24px 28px 28px}
+#core-settings h2{margin:0;font-size:15px;font-weight:700;letter-spacing:.18em;color:#ff2244;text-shadow:0 0 12px #ff224466}
+.settings-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:14px;border-bottom:1px solid #3a0a10}
+.cp-close{width:32px;height:32px;border:1px solid #4a0d14;background:#0d0306;color:#ff526b;font-size:18px;line-height:1;padding:0}
+.cp-close:hover{background:#ff2244;color:#000;border-color:#ff2244}
+.settings-scan{height:2px;background:linear-gradient(90deg,transparent,#ff2244,transparent);opacity:.35;margin-bottom:18px;animation:cp-scan 3s linear infinite;background-size:200% 100%}
+@keyframes cp-scan{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.terminal-section{margin:0 0 18px;padding:14px 16px 16px;border:1px solid #26060b;background:#0a0205;position:relative}
+.terminal-section::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,#ff224444,transparent 60%)}
+.section-label{font-size:11px;font-weight:700;letter-spacing:.22em;color:#ff526b;cursor:pointer;text-transform:uppercase}
+h3.section-label{margin:0 0 10px;cursor:default}
+details.terminal-section>summary{list-style:none;padding:2px 0}
+details.terminal-section>summary::-webkit-details-marker{display:none}
+details.terminal-section[open]>summary{margin-bottom:10px}
+.settings-help{color:#8a6a6e;font-size:11px;line-height:1.6;margin:6px 0 10px}
+.cp-btn{border:1px solid #4a0d14;background:#0d0306;color:#c89096;font:inherit;font-size:11px;letter-spacing:.14em;padding:8px 16px;text-transform:uppercase;cursor:pointer;clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,8px 100%,0 calc(100% - 8px));transition:background .15s,color .15s,border-color .15s}
+.cp-btn:hover:not(:disabled){border-color:#ff2244;color:#ff8a94;background:#180409}
+.cp-btn:disabled{opacity:.4;cursor:wait}
+.cp-btn-primary{background:#2a060c;border-color:#ff2244;color:#ff526b;font-weight:700}
+.cp-btn-primary:hover:not(:disabled){background:#ff2244;color:#000}
+.cp-btn-dim{color:#7a5055}
+.core-models{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+.model-label{display:block;margin:0}
+.model-label>span{display:block;font-size:10px;letter-spacing:.18em;color:#a06a70;margin-bottom:5px;text-transform:uppercase}
+#core-settings select{display:block;width:100%;margin:0;padding:7px 10px;border:1px solid #3a0a10;background:#0d0306;color:#d8cfd0;font:inherit;font-size:11px;letter-spacing:.06em;appearance:none;background-image:linear-gradient(45deg,transparent 50%,#ff526b 50%),linear-gradient(135deg,#ff526b 50%,transparent 50%);background-position:calc(100% - 14px) 50%,calc(100% - 9px) 50%;background-size:5px 5px;background-repeat:no-repeat;cursor:pointer}
+#core-settings select:hover,#core-settings select:focus{border-color:#ff2244;outline:none}
+#core-settings select option{background:#0d0306;color:#d8cfd0}
+.provider-row{display:grid;grid-template-columns:170px minmax(0,1fr);gap:10px;margin-bottom:10px}
+#core-settings input[type=password],#core-settings input[type=text]{padding:7px 10px;border:1px solid #3a0a10;background:#0d0306;color:#d8cfd0;font:inherit;font-size:11px;letter-spacing:.06em}
+#core-settings input[type=password]:focus,#core-settings input[type=text]:focus{border-color:#ff2244;outline:none}
+.check-row{display:flex;align-items:center;gap:9px;margin:8px 0;font-size:10px;letter-spacing:.12em;color:#a06a70;text-transform:uppercase;cursor:pointer}
+.check-row input[type=checkbox]{appearance:none;-webkit-appearance:none;width:15px;height:15px;flex:none;margin:0;padding:0;border:1px solid #4a0d14;border-radius:0;background:#0d0306;display:inline-grid;place-content:center;cursor:pointer;transition:.12s}
+.check-row input[type=checkbox]::after{content:'';width:8px;height:8px;background:#ff2244;transform:scale(0);transition:.1s;clip-path:polygon(14% 44%,0 65%,50% 100%,100% 16%,80% 0%,43% 62%)}
+.check-row input[type=checkbox]:checked{border-color:#ff2244}
+.check-row input[type=checkbox]:checked::after{transform:scale(1)}
+.check-row input[type=checkbox]:disabled{opacity:.5;cursor:default}
+.council-help{display:flex;align-items:center;gap:10px}
+.council-count{margin-left:auto;font-size:11px;font-weight:700;color:#ff2244;border:1px solid #4a0d14;padding:1px 8px;letter-spacing:.1em}
+.council-count.ok{color:#4cf2ad;border-color:#1d462d}
+.council-chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{border:1px solid #3a0a10;background:#0d0306;color:#9a7078;font:inherit;font-size:10px;letter-spacing:.08em;padding:5px 11px;cursor:pointer;text-transform:uppercase;transition:background .12s,color .12s,border-color .12s;clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,6px 100%,0 calc(100% - 6px))}
+.chip:hover:not(.off){border-color:#ff526b;color:#d8a0a6}
+.chip.on{background:#2a060c;border-color:#ff2244;color:#ff8a94;font-weight:700;box-shadow:0 0 10px #ff224422}
+.chip.off{opacity:.35;cursor:not-allowed}
+.web-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px}
+.web-row label{display:block;margin:0}
+.web-row label>select{margin-top:5px}
+.cp-link{color:#ff526b;text-decoration:none;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.cp-link:hover{color:#ff8a94;text-decoration:underline}
+.core-prompts details{border-top:1px solid #26060b;padding:10px 0}
+.core-prompts summary{font-size:10px;letter-spacing:.18em;color:#a06a70;cursor:pointer;text-transform:uppercase}
+.core-prompts summary:hover{color:#ff526b}
+.core-prompts textarea{width:100%;margin-top:10px;padding:10px;border:1px solid #3a0a10;background:#0d0306;color:#d8cfd0;font:inherit;font-size:11px;line-height:1.6;resize:vertical}
+.core-prompts textarea:focus{border-color:#ff2244;outline:none}
+.settings-status{min-height:20px;margin:14px 0 0;font-size:11px;letter-spacing:.1em;color:#ff8a94;text-transform:uppercase}
+.settings-actions{display:flex;justify-content:space-between;gap:14px;margin-top:14px}
+.settings-actions .cp-btn{flex:1;text-align:center}
+@media(max-width:600px){.core-models{grid-template-columns:1fr}.provider-row{grid-template-columns:1fr}.web-row{grid-template-columns:1fr}#core-settings{padding:16px}#core-settings form{padding:16px}}
+@media(prefers-reduced-motion:reduce){.settings-scan{animation:none}}

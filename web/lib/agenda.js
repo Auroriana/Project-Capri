@@ -39,12 +39,8 @@ export async function agendaRoutes({req,route,token,sb,send,fail,readBody,genera
  const existing=(await rpc('aria_reminder_list',{})).find(r=>r.id===b.key);
  if(existing){if(reminderContent(existing.text)!==intent.text||Date.parse(existing.due_at)!==due||existing.timezone!==b.timezone)throw fail('This request already belongs to another reminder.',409);send(200,{kind:'reminder',answer:'Your reminder is saved: '+existing.text+' — '+new Date(existing.due_at).toLocaleString('en',{timeZone:existing.timezone})+' ('+existing.timezone+').'});return true;}
  if(due<=Date.now()||due>Date.now()+366*86400000)throw fail('Choose a future time within the next year.');
- let notification=null;
- // Generate once when scheduled; delivery never depends on model availability.
- if(process.env.GEMINI_API_KEY&&process.env.GEMINI_FREE_TIER_CONFIRMED==='true'){
-  const request={systemInstruction:{parts:[{text:settingsOf(b.settings).prompts.personality+'\nWrite one short push notification in your own voice for the supplied reminder. Say what you want to say to the owner, grounded in the reminder. No invented facts, promises of completed work, or claims of sensing the user. Include the action itself in your message; it is due NOW, not in five minutes. Do not include unrelated follow-up tasks or relative scheduling language. Maximum 180 characters. Return only spoken words. No sprite labels, stage directions or metadata. Return plain text.'}]},contents:[{role:'user',parts:[{text:JSON.stringify({reminder:intent.text,due:new Date(due).toISOString(),timezone:b.timezone})}]}],generationConfig:{maxOutputTokens:256}};
-  try{if(await rpc('aria_reserve',{p_model:model,p_tokens:Buffer.byteLength(JSON.stringify(request))+256})){const result=await generate(model,request);if(!result.truncated&&typeof result.answer==='string')notification=result.answer.replace(/\[(?:sprite:[^\]]+|focus|focused_analysis|neutral_attention)\]\s*/gi,'').trim().slice(0,180)||null;}}catch{/* Scheduling still works if the model is unavailable. */}
- }
+ // Persist scheduling without waiting on a model: a slow completion can make a near-term due time expire.
+ const notification=intent.text.slice(0,180);
  const r=await rpc('aria_reminder_save',{p_id:b.key,p_text:intent.text,p_due:new Date(due).toISOString(),p_timezone:b.timezone,p_notification:notification});
  if(!r.ok)throw fail('This request identifier already belongs to another reminder.',409);
  let overview,archiveWarning;try{overview=await archiveReminderOverview({sb,token,timezone:b.timezone});}catch(e){archiveWarning=e.message;}

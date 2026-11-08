@@ -8,3 +8,7 @@ reports/
 .local/
 coverage/
 *.log
+
+artifacts/rag-preparation/
+web/supabase/.temp/
+pipeline-test-results.txt

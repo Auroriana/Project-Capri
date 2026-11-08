@@ -131,8 +131,8 @@ test('evidence budget favors relevance and retains stable IDs for omitted passag
   state.sources=Array.from({length:10},(_,i)=>({...passage(i,String(i),'x'.repeat(3000)),key:String(i),seenAt:10-i,relevance:i===0?0:20}));
   const run=researchStep({state,message:'Question',search:async()=>[],generate:async request=>{
    const evidence=JSON.parse(request.contents[0].parts[0].text).evidence;
-   assert.equal(evidence.length,10);assert.equal(evidence.filter(s=>s.content).reduce((n,s)=>n+s.content.length,0),RAG_LIMITS.evidenceChars);
-   assert.equal(evidence[0].passageOmitted,true);assert.equal(evidence[1].id,'S2');
+   assert.equal(evidence.length,1);assert.ok(Buffer.byteLength(JSON.stringify(evidence))/4<=2500);
+   assert.equal(evidence[0].id,'S2');
    return {answer:invalid?'Omitted [S1].':'Supported [S2].'};
   }});
   if(invalid)await assert.rejects(run,/invalid source/);else assert.equal((await run).result.sources[1].cited,true);
@@ -180,7 +180,7 @@ test('API keeps all model-driven searches in the authenticated selected vault an
   assert.equal(res.statusCode,200);assert.equal(response.research.searches,2);
   assert.equal(events.filter(x=>x==='reserve').length,3);
   events.forEach((event,i)=>{if(event==='generate')assert.equal(events[i-1],'reserve');});
-  assert.ok(bodies.every(b=>JSON.parse(b.contents[0].parts[0].text).conversationMemory[0].text==='DELETED SECRET EVIDENCE'));
+  assert.ok(bodies.every(b=>JSON.parse(b.contents[0].parts[0].text).conversationMemory.length===0));
   assert.ok(bodies.every(b=>!JSON.stringify(JSON.parse(b.contents[0].parts[0].text).evidence).includes('DELETED SECRET EVIDENCE')));
   assert.ok(bodies.every(b=>JSON.parse(b.contents[0].parts[0].text).operatorMessage===scenario));
 });

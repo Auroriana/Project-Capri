@@ -1,3 +1,4 @@
+import {capHistory} from '../public/context-budget.js';
 import {isUuid} from './notes.js';
 export const models = [
   {id:'gemini-3.5-flash-lite',name:'Gemini 3.5 Flash Lite',purpose:'Everyday · recommended',rpm:15,rpd:500},
@@ -33,5 +34,5 @@ export function validateChat(body) {
     const valid = f.mime === 'image/png' ? b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) : f.mime === 'image/jpeg' ? b[0] === 255 && b[1] === 216 && b[2] === 255 : f.mime === 'image/webp' ? b.toString('ascii',0,4) === 'RIFF' && b.toString('ascii',8,12) === 'WEBP' : b.toString('ascii',0,5) === '%PDF-';
     if (!valid || bytes > 3_900_000) throw badFile();
   }
-  return {model:model.id,message:body.message.trim(),mode:body.mode,history,vault,concise,depth,...(body.followupCache?{followupCache:body.followupCache}:{}),files:files.map(({mime,data})=>({inlineData:{mimeType:mime,data}}))};
+  return {model:model.id,message:body.message.trim(),mode:body.mode,history:capHistory(history,body.settings?.max_history_tokens||3000),vault,concise,depth,...(body.followupCache?{followupCache:body.followupCache}:{}),files:files.map(({mime,data})=>({inlineData:{mimeType:mime,data}}))};
 }

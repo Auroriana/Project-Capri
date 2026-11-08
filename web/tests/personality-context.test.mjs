@@ -21,7 +21,7 @@ test('short turn stays below prior 5775-token fixture while preserving custom in
  const message='Can you fix this broken feature?';
  await personalize({body:{action:'turn',message,history:[]},generate:async request=>{
   assert.ok(estimateText(JSON.stringify(request))<4300);
-  const data=JSON.parse(request.contents[0].parts[0].text);assert.deepEqual(data.currentMessages,[{text:message}]);assert.equal(data.message,undefined);assert.equal(data.question,undefined);
+  const data=JSON.parse(request.contents[0].parts[0].text);assert.equal(data.message,message);assert.deepEqual(data.conversation,[]);assert.equal(data.personalityPassages,undefined);assert.match(request.systemInstruction.parts[0].text,/CORE AI/);
   return {answer:'{"route":"reasoning"}'};
  }});
  const custom='Keep my custom persona verbatim.';let calls=0;
@@ -35,7 +35,7 @@ test('runtime snapshot reports actual fallback and bounded failures without secr
  const owner='runtime-fixture';rememberFailure(owner,{status:429,model:'nim:nvidia/test',phase:'rewrite',secret:'NEVER_SEND'});
  const first=withRuntime({systemInstruction:{parts:[{text:'Original instruction'}]}},{owner,model:'groq:test',phase:'rewrite',settings:{web:'off',apiKey:'NEVER_SEND'}});
  const next=withRuntime(first,{owner,model:'gemini-test',phase:'rewrite',fallbackFrom:'groq:test'});
- assert.equal(next.systemInstruction.parts.length,2);const text=next.systemInstruction.parts[1].text;
+ assert.equal(next.systemInstruction.parts.length,1);assert.equal(next.contents.at(-1).parts.length,1);const text=next.contents.at(-1).parts.at(-1).text;
  assert.match(text,/"model":"gemini-test"/);assert.match(text,/"fallbackFrom":"groq:test"/);assert.match(text,/"status":429/);assert.doesNotMatch(text,/NEVER_SEND/);
  assert.match(requestErrorText(429,true),/retry shortly/);assert.match(requestErrorText(413),/too big/);
 });

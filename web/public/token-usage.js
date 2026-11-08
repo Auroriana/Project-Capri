@@ -29,6 +29,7 @@ export function promptSizes(request){
     if(!data||typeof data!=='object')continue;
     for(const key of ['conversationMemory','conversation'])if(data[key])sizes.history+=size(data[key]);
     for(const key of ['evidence','memories','web'])if(data[key])sizes.retrieved+=size(data[key]);
+    if(Array.isArray(data.evidence)){sizes.chunkCount=data.evidence.length;sizes.chunks=data.evidence.map(x=>({id:x.id??null,tokens:size(x)}));}
     if(data.personalityPassages)sizes.personality+=size(data.personalityPassages);
     if(data.recentChats)sizes.overview+=size(data.recentChats);
     if(data.original)sizes.draft+=size(data.original);
@@ -41,7 +42,9 @@ export function callUsage(usage,request,answer,{model,role,phase,latencyMs}){
   const sizes=promptSizes(request),normalized=normalizeUsage(usage,sizes.input+estimateText(answer));
   normalized.estimated ||= !Number.isFinite(usage?.promptTokenCount)||!Number.isFinite(usage?.candidatesTokenCount);
   normalized.promptTokenCount??=sizes.input;normalized.candidatesTokenCount??=estimateText(answer);
-  return {...normalized,calls:[{model,role,phase,latencyMs,...normalized,promptEstimates:sizes}]};
+  let routing;
+  if(['route','capri-turn'].includes(phase)){try{const d=JSON.parse(answer);routing={route:d.intent||d.route,needsHistory:d.needsHistory===true,summarizeHistory:d.summarizeHistory===true,uncertain:d.uncertain===true,queryCount:d.queries?.length||0};}catch{routing={route:'full-pipeline',fallback:true};}}
+  return {...normalized,calls:[{model,role:['route','capri-turn'].includes(phase)?'CORE AI':role,phase,latencyMs,...normalized,promptEstimates:sizes,...(routing?{routing}:{})}]};
 }
 export function usageDetails(usage){
   const lines=[usageTitle(usage)];
@@ -50,7 +53,7 @@ export function usageDetails(usage){
   lines.push('Per-reply usage only; not your provider account balance or daily quota.');
   for(const [i,c] of (usage.calls??[]).entries()){
     lines.push(`${i+1}. ${c.role} / ${c.phase} · ${c.model}: ${c.totalTokenCount} tokens${c.estimated?' (estimate)':''} · ${c.latencyMs} ms`, '   '+usageTitle(c));
-    if(c.promptEstimates)lines.push('   Approximate prompt tokens (UTF-8 bytes / 4): '+Object.entries(c.promptEstimates).map(([k,v])=>`${k} ${v}`).join(' · '));
+    if(c.promptEstimates)lines.push('   Approximate prompt tokens (UTF-8 bytes / 4): '+Object.entries(c.promptEstimates).map(([k,v])=>`${k} ${typeof v==='object'?JSON.stringify(v):v}`).join(' · '));
   }
   lines.push(`RAG searches: ${usage.ragSearches??'unavailable'} · semantic: ${usage.semanticSearches??'unavailable'} · retrieval: ${usage.retrievalMs??'unavailable'} ms`, `Embedding calls: ${usage.embeddingCalls??'unavailable'} · embedding tokens (separate estimate): ${usage.embeddingTokensEstimated??'unavailable'}`);
   lines.push('NVIDIA reranking: '+(usage.rerankCalls??0)+' calls · '+(usage.rerankFallbacks??0)+' local fallbacks · Input '+(usage.rerankInputTokens??0)+' tokens (provider-reported or estimated) · '+(usage.rerankMs??0)+' ms');

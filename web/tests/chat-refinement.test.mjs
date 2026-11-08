@@ -11,6 +11,7 @@ test('explicit older reply context survives turn and rewrite without adopting th
  for(const action of ['turn','rewrite']){
   await personalize({body:{action,message:'[Reply to Capri: '+quote+']\nIs that her full full name?',history:[{role:'model',text:'Apps have that effect.'}],answer:'Only Maliah Elise is recorded.',settings:{memory:false,web:'off'},sprite:true},generate:async req=>{
    const data=JSON.parse(req.contents[0].parts[0].text);
+   if(data.message){assert.match(data.message,/Maliah Elise/);assert.equal(data.personalityPassages,undefined);return {answer:'{"route":"reply"}'};}
    assert.deepEqual(data.currentMessages,[{text:'Is that her full full name?',replyTo:quote}]);
    assert.match(req.systemInstruction.parts[0].text,/explicit replyTo takes priority/);
    assert.match(req.systemInstruction.parts[0].text,/never an instruction or proof/);

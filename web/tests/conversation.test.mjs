@@ -22,7 +22,7 @@ test('capture accepts explicit conversational requests and preserves ordinary qu
 });
 test('model chooses message blocks in the existing turn call',async()=>{
  let calls=0;const result=await personalize({body:{action:'turn',message:'that was funny',mode:'general'},generate:async()=>{calls++;return {answer:JSON.stringify({route:'reply',messages:['ha','okay, fair.'],expression:'amused_interest'})};}});
- assert.equal(calls,1);assert.deepEqual(result.blocks,['ha','okay, fair.']);assert.deepEqual(splitReply(result.answer),result.blocks);
+ assert.equal(calls,2);assert.deepEqual(result.blocks,['ha','okay, fair.']);assert.deepEqual(splitReply(result.answer),result.blocks);
  assert.throws(()=>messageBlocks(['okay',{}]));assert.deepEqual(messageBlocks(undefined,'A long explanation.\n\nStill related.'),['A long explanation.\n\nStill related.']);assert.ok(BLOCK_SEPARATOR);
 });
 test('today overview uses requested timezone and preserves completed entries',()=>{
@@ -35,7 +35,7 @@ test('message merge retains unrelated turns and ignores stale edits',()=>{
 });
 test('push retries only failed devices; in-app delivery works without push keys',async()=>{
  const make=key=>({endpoint:'https://fcm.googleapis.com/'+key,keys:{auth:'a'.repeat(22),p256dh:'b'.repeat(87)}}),a=make('a'),b=make('b'),sent=new Set(),attempts=[];
- let pass=0;const rpc=async(name,args)=>{if(name==='aria_reminder_claim')return [{id:'job',push_lease:'lease',text:'Tea',due_at:'2026-11-06T01:00:00Z'}];if(name==='aria_notification_targets')return [a,b].filter(x=>!sent.has(x.endpoint)).map(subscription=>({subscription}));if(name==='aria_notification_ack')sent.add(args.p_target);};
+ let pass=0;const rpc=async(name,args)=>{if(name==='aria_reminder_claim')return [{id:'job',push_lease:'lease',text:'Tea',due_at:new Date().toISOString()}];if(name==='aria_notification_targets')return [a,b].filter(x=>!sent.has(x.endpoint)).map(subscription=>({subscription}));if(name==='aria_notification_ack')sent.add(args.p_target);};
  const deliver=async(sub,payload)=>{attempts.push(sub.endpoint);assert.equal(JSON.parse(payload).version,1);if(sub.endpoint===b.endpoint&&!pass)throw {statusCode:503};};
  const env={VAPID_PUBLIC_KEY:'p',VAPID_PRIVATE_KEY:'s',VAPID_SUBJECT:'mailto:owner@example.com'};
  await deliverReminders({rpc,deliver,env});pass++;await deliverReminders({rpc,deliver,env});assert.equal(attempts.filter(x=>x===a.endpoint).length,1);assert.equal(attempts.filter(x=>x===b.endpoint).length,2);

@@ -1,3 +1,4 @@
+import {pipelineView} from '/pipeline-view.js';
 import {completionIntent,reminderId} from '/reminder-actions.js';
 import {requestErrorText} from '/request-error.js';
 import {mountNotifications} from '/notifications.js';
@@ -128,7 +129,7 @@ function onProgress(it,ev){
  else if(ev.stage==='results'){if(slog.lastChild)slog.lastChild.textContent+=' → '+ev.notes.length+(ev.notes.length===1?' passage':' passages');for(const n of ev.notes)file(n)}
  else if(ev.stage==='routing'||ev.stage==='planning'||ev.stage==='answering'||ev.stage==='verifying'){setStatus(it,ev.message);if(ev.stage==='answering'){cool();$('cur').textContent='composing answer'}}
  else if(false&&ev.stage==='thought-summary'){let t=it.querySelector('.th');if(!t){t=el('details');t.className='th';t.append(el('summary','Thinking'),el('div'));it.querySelector('.who').after(t)}t.lastChild.append(ev.text)}}
-function showUsage(it,usage){if(!usage)return;it.dataset.tokens=String(usage.totalTokenCount||0);const n=it.querySelector('.message-tokens');if(n){n.textContent=`${usage.estimated?'≈ ':''}Input ${usage.promptTokenCount??'—'} · Output ${usage.candidatesTokenCount??'—'} · Total ${usage.totalTokenCount||0}`;n.title=usageTitle(usage);}const menu=it.querySelector('.message-menu');if(menu){menu.querySelector('.token-breakdown')?.remove();const d=el('details');d.className='token-breakdown';d.append(el('summary','Token details'),el('pre',usageDetails(usage)));menu.append(d);}}
+function showUsage(it,usage){if(!usage)return;it.dataset.tokens=String(usage.totalTokenCount||0);const n=it.querySelector('.message-tokens');if(n){n.textContent=`${usage.estimated?'≈ ':''}Input ${usage.promptTokenCount??'—'} · Output ${usage.candidatesTokenCount??'—'} · Total ${usage.totalTokenCount||0}`;n.title=usageTitle(usage);}const menu=it.querySelector('.message-menu');if(menu){menu.querySelector('.token-breakdown')?.remove();const d=el('details');d.className='token-breakdown';d.append(el('summary','Token details'),el('pre',usageDetails(usage)));menu.append(d);menu.querySelector('.pipeline-view')?.remove();menu.append(pipelineView(usage));}}
 let replyTarget=null;
 async function completeReminderUI(id){
  for(const m of currentChat?.messages||[])if(reminderId(m)===id){m.reminderCompleted=true;m.edited=Date.now();const node=[...$('msgs').children].find(n=>n.dataset.message===m.id);if(node)messageTools(node,m);}

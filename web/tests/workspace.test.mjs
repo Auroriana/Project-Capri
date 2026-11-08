@@ -40,7 +40,7 @@ test('checkpoints survive serialization and reject tampering, another owner or d
   assert.throws(()=>openCheckpoint(token,'other','question'));assert.throws(()=>openCheckpoint(token,'owner','other'));assert.throws(()=>openCheckpoint(token.slice(0,50)+(token[50]==='X'?'Y':'X')+token.slice(51),'owner','question'));
 });
 test('resumed research retains earlier evidence, attached images, stable citations and memory',async()=>{
-  let state=createResearchState(),calls=0;const files=[{inlineData:{mimeType:'image/png',data:'test'}}],history=[{role:'user',text:'Customer is in Florida.'}];
+  let state={...createResearchState(),needsHistory:true},calls=0;const files=[{inlineData:{mimeType:'image/png',data:'test'}}],history=[{role:'user',text:'Customer is in Florida.'}];
   for(let i=0;i<12;i++){
     const result=await researchStep({state,message:'Next step?',files,history,search:async q=>[{id:q,title:q,source_path:q+'.md',content:'Stop. [[Transfer to Licensed]]'}],generate:async request=>{
       assert.deepEqual(request.contents[0].parts[1],files[0]);const c=JSON.parse(request.contents[0].parts[0].text);assert.deepEqual(c.conversationMemory,history);

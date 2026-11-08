@@ -22,8 +22,8 @@ test('reflective follow-up reuses actual passages with remapped citations, no se
  const result=await researchVault({message:'What do you think of her?',history:[{role:'user',text:'Pull all information about Jhicaih.'},{role:'model',text:'Jhicaih kept her promise [S8].'}],route:true,followup,overview:async()=>[],search:async()=>{throw Error('Unnecessary search');},
  generate:async(request,meta)=>{
   phases.push(meta.phase);const context=JSON.parse(request.contents[0].parts[0].text);
-  assert.doesNotMatch(context.conversationMemory[1].text,/\[S8\]/);
-  if(meta.phase==='route'){assert.equal(context.cachedSources.length,1);assert.equal(context.cachedSources[0].content,undefined);assert.deepEqual(context.evidence,[]);return {answer:'{"intent":"context","queries":[]}'};}
+  if(context.conversationMemory.length)assert.doesNotMatch(context.conversationMemory.at(-1).text,/\[S8\]/);
+  if(meta.phase==='route'){assert.equal(context.cachedSources,undefined);assert.equal(context.evidence,undefined);return {answer:'{"intent":"context","queries":[]}'};}
   assert.equal(context.evidence[0].content,source.excerpt);assert.equal(context.evidence[0].id,'S1');
   return {answer:'Keeping her promise [S1] earns my respect.'};
  }});

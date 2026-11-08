@@ -9,10 +9,10 @@ test('a reaction gets a single speaking call with owner calibration and the prev
  const reply=await personalize({body:{action:'turn',message:'How cheeky',history},generate:async req=>{
    calls++;const data=JSON.parse(req.contents[0].parts[0].text);
    assert.equal(data.conversation.at(-1).text,'Hey!');assert.equal(data.previousAssistantReply,undefined);
-   assert.ok(data.personalityPassages.some(p=>p.kind==='owner-calibration'));
+   if(calls===1)assert.equal(data.personalityPassages,undefined);else assert.ok(data.personalityPassages.some(p=>p.kind==='owner-calibration'));
    return {answer:JSON.stringify({route:'reply',answer:'Who, me?',expression:'amused_interest'})};
  }});
- assert.equal(calls,1);assert.equal(reply.answer,'Who, me?');assert.equal(reply.expression,'amused_interest');
+ assert.equal(calls,2);assert.equal(reply.answer,'Who, me?');assert.equal(reply.expression,'amused_interest');
 });
 
 test('delegation infers note retrieval without a manual mode and still inspects attachments',async()=>{

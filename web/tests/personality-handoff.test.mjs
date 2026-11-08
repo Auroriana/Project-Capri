@@ -18,26 +18,9 @@ test('handoff preserves draft and continuity but sends only cited source identit
  assert.deepEqual(citationMap('[S1]',[{id:'S1',read:false}]),[]);
 });
 
-test('personality can seek a missing fact after reasoning searched, with S and P provenance intact',async()=>{
- const phases=[],contexts=[],queries=[];
- const result=await personalize({body:{action:'rewrite',message:'What does that imply?',answer:'The event is planned [S2].',vaultSearches:2,
-  history:[{role:'model',text:'The event concerns the first project.'}],citationSources:[{id:'S2',title:'Plan',path:'Plan.md',vault:'Work',excerpt:'RAW_PASSAGE'}],settings:{enabled:true,web:'off'}},
-  generate:async(request,meta)=>{phases.push(meta?.phase??'rewrite');contexts.push(JSON.parse(request.contents[0].parts[0].text));return {answer:phases.length===1?'{"query":"project deadline"}':'The plan [S2] leaves little room before the deadline [P1]. I would start now.'};},
-  search:async q=>{queries.push(q);return [{title:'Deadline',source_path:'Deadline.md',vault_name:'Work',content:'Friday'}];}});
- assert.deepEqual(queries,['project deadline']);assert.deepEqual(phases,['memory-plan','rewrite']);
- assert.equal(contexts[0].vaultsChecked,true);assert.equal(contexts[0].conversation[0].text,'The event concerns the first project.');
- assert.deepEqual(contexts[0].citationSources,[{id:'S2',title:'Plan',path:'Plan.md',vault:'Work'}]);
- assert.doesNotMatch(JSON.stringify(contexts),/RAW_PASSAGE/);
- assert.deepEqual(contexts[1].allowedCitations,['S2','P1']);assert.equal(result.sources[0].id,'P1');assert.equal(result.citationWarning,null);
-});
+test('personality preserves draft citations without further raw retrieval',async()=>{let calls=0;const result=await personalize({body:{action:'rewrite',message:'Explain the draft',answer:'Known [S1]',settings:{memory:true,web:'ask'}},generate:async(request,meta)=>{calls++;assert.equal(meta.phase,'rewrite');assert.deepEqual(JSON.parse(request.contents[0].parts[0].text).memories,[]);return {answer:'Known [S1]'};},search:()=>assert.fail('Personality must not retrieve raw notes'),webSearch:()=>assert.fail('No CORE AI web request')});assert.equal(calls,1);assert.equal(result.answer,'Known [S1]');});
 
-test('model-proposed current-information gap still checks vault and requests web permission',async()=>{
- let calls=0,searches=0;
- const result=await personalize({body:{action:'rewrite',message:'Would you recommend this?',answer:'No current reviews available.',settings:{enabled:true,web:'ask'}},
-  generate:async request=>{calls++;if(calls>1)assert.equal(JSON.parse(request.contents[0].parts[0].text).vaultsChecked,true);return {answer:calls===1?'{"query":null,"webQuery":"public product current reviews"}':calls===2?'{"missingFromVaults":true,"opinionNeedsCurrentInformation":true,"webQuery":"public product current reviews","question":"Shall I check recent reviews?"}':'My view is provisional.'};},
-  search:async()=>{searches++;return [];},webSearch:async()=>{throw Error('No permission');}});
- assert.equal(calls,3);assert.equal(searches,1);assert.equal(result.webRequest.query,'public product current reviews');
-});
+test('personality cannot initiate public research independently',async()=>{let calls=0;const result=await personalize({body:{action:'rewrite',message:'Explain the draft',answer:'Known [S1]',settings:{memory:true,web:'ask'}},generate:async(request,meta)=>{calls++;assert.equal(meta.phase,'rewrite');assert.deepEqual(JSON.parse(request.contents[0].parts[0].text).memories,[]);return {answer:'Known [S1]'};},search:()=>assert.fail('Personality must not retrieve raw notes'),webSearch:()=>assert.fail('No CORE AI web request')});assert.equal(calls,1);assert.equal(result.answer,'Known [S1]');});
 
 test('legacy handoffs remain accepted and malformed citation maps fail before generation',async()=>{
  const base={action:'rewrite',message:'Hi',answer:'Known [S1]',settings:{enabled:true,memory:false,web:'off'}};

@@ -1,5 +1,5 @@
 import {AsyncLocalStorage} from 'node:async_hooks';import {createHash,randomBytes,createCipheriv,createDecipheriv} from 'node:crypto';
-const context=new AsyncLocalStorage(),names=['groq','nim','deepseek','openrouter','anthropic'];
+const context=new AsyncLocalStorage(),names=['groq','nim','deepseek','openrouter','anthropic','zai'];
 const encryptionKey=()=>{const secret=process.env.PROVIDER_CREDENTIAL_SECRET||process.env.GEMINI_API_KEY;if(!secret)throw Object.assign(Error('Server credential encryption is not configured.'),{status:503});return createHash('sha256').update(secret).digest();};
 export const credential=provider=>context.getStore()?.[provider];
 export function sealCredential(value){const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',encryptionKey(),iv),data=Buffer.concat([cipher.update(JSON.stringify(value),'utf8'),cipher.final()]);return Buffer.concat([iv,cipher.getAuthTag(),data]).toString('base64url');}

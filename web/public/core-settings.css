@@ -1,62 +1,62 @@
-/* Cyberpunk 2077 terminal — red-on-black, monospace, clipped corners, scan lines. */
-#aria-settings{border:0;background:none;padding:0;color:inherit;cursor:pointer}#aria-settings:hover{color:#ff526b}
-#core-settings{width:min(840px,94vw);max-height:90dvh;overflow:auto;padding:0;border:1px solid #4a0d14;background:#070204;color:#d8cfd0;font:12px/1.6 ui-monospace,'Cascadia Code',Consolas,monospace;letter-spacing:.03em;box-shadow:0 0 40px #ff224418,0 20px 80px #000c;clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,18px 100%,0 calc(100% - 18px))}
-#core-settings::backdrop{background:#020403cc;backdrop-filter:blur(6px)}
+/* Capricorn settings — green primary, red energy accents, purple status, on black. */
+#aria-settings{border:0;background:none;padding:0;color:inherit;cursor:pointer}#aria-settings:hover{color:#67ffa4}
+#core-settings{width:min(840px,94vw);max-height:90dvh;overflow:auto;padding:0;border:1px solid #1a4a38;background:#030805;color:#cfe8db;font:12px/1.6 ui-monospace,'Cascadia Code',Consolas,monospace;letter-spacing:.03em;box-shadow:0 0 40px #4cf2ad18,0 20px 80px #000c;clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,18px 100%,0 calc(100% - 18px))}
+#core-settings::backdrop{background:#020408cc;backdrop-filter:blur(6px)}
 #core-settings form{padding:24px 28px 28px}
-#core-settings h2{margin:0;font-size:15px;font-weight:700;letter-spacing:.18em;color:#ff2244;text-shadow:0 0 12px #ff224466}
-.settings-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:14px;border-bottom:1px solid #3a0a10}
-.cp-close{width:32px;height:32px;border:1px solid #4a0d14;background:#0d0306;color:#ff526b;font-size:18px;line-height:1;padding:0}
-.cp-close:hover{background:#ff2244;color:#000;border-color:#ff2244}
-.settings-scan{height:2px;background:linear-gradient(90deg,transparent,#ff2244,transparent);opacity:.35;margin-bottom:18px;animation:cp-scan 3s linear infinite;background-size:200% 100%}
+#core-settings h2{margin:0;font-size:15px;font-weight:700;letter-spacing:.18em;color:#4cf2ad;text-shadow:0 0 12px #4cf2ad55}
+.settings-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:14px;border-bottom:1px solid #123326}
+.cp-close{width:32px;height:32px;border:1px solid #1a4a38;background:#06120c;color:#67ffa4;font-size:18px;line-height:1;padding:0}
+.cp-close:hover{background:#4cf2ad;color:#020408;border-color:#4cf2ad}
+.settings-scan{height:2px;background:linear-gradient(90deg,transparent,#4cf2ad,transparent);opacity:.35;margin-bottom:18px;animation:cp-scan 3s linear infinite;background-size:200% 100%}
 @keyframes cp-scan{0%{background-position:200% 0}100%{background-position:-200% 0}}
-.terminal-section{margin:0 0 18px;padding:14px 16px 16px;border:1px solid #26060b;background:#0a0205;position:relative}
-.terminal-section::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,#ff224444,transparent 60%)}
-.section-label{font-size:11px;font-weight:700;letter-spacing:.22em;color:#ff526b;cursor:pointer;text-transform:uppercase}
+.terminal-section{margin:0 0 18px;padding:14px 16px 16px;border:1px solid #0e2418;background:#050d09;position:relative}
+.terminal-section::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,#4cf2ad33,transparent 60%)}
+.section-label{font-size:11px;font-weight:700;letter-spacing:.22em;color:#67ffa4;cursor:pointer;text-transform:uppercase}
 h3.section-label{margin:0 0 10px;cursor:default}
 details.terminal-section>summary{list-style:none;padding:2px 0}
 details.terminal-section>summary::-webkit-details-marker{display:none}
 details.terminal-section[open]>summary{margin-bottom:10px}
-.settings-help{color:#8a6a6e;font-size:11px;line-height:1.6;margin:6px 0 10px}
-.cp-btn{border:1px solid #4a0d14;background:#0d0306;color:#c89096;font:inherit;font-size:11px;letter-spacing:.14em;padding:8px 16px;text-transform:uppercase;cursor:pointer;clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,8px 100%,0 calc(100% - 8px));transition:background .15s,color .15s,border-color .15s}
-.cp-btn:hover:not(:disabled){border-color:#ff2244;color:#ff8a94;background:#180409}
+.settings-help{color:#7d998c;font-size:11px;line-height:1.6;margin:6px 0 10px}
+.cp-btn{border:1px solid #1a4a38;background:#06120c;color:#7fae9a;font:inherit;font-size:11px;letter-spacing:.14em;padding:8px 16px;text-transform:uppercase;cursor:pointer;clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,8px 100%,0 calc(100% - 8px));transition:background .15s,color .15s,border-color .15s}
+.cp-btn:hover:not(:disabled){border-color:#4cf2ad;color:#a3f5cf;background:#0c2418}
 .cp-btn:disabled{opacity:.4;cursor:wait}
-.cp-btn-primary{background:#2a060c;border-color:#ff2244;color:#ff526b;font-weight:700}
-.cp-btn-primary:hover:not(:disabled){background:#ff2244;color:#000}
-.cp-btn-dim{color:#7a5055}
+.cp-btn-primary{background:#0a2a1c;border-color:#4cf2ad;color:#67ffa4;font-weight:700}
+.cp-btn-primary:hover:not(:disabled){background:#4cf2ad;color:#020408}
+.cp-btn-dim{color:#5c8070}
 .core-models{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
 .model-label{display:block;margin:0}
-.model-label>span{display:block;font-size:10px;letter-spacing:.18em;color:#a06a70;margin-bottom:5px;text-transform:uppercase}
-#core-settings select{display:block;width:100%;margin:0;padding:7px 10px;border:1px solid #3a0a10;background:#0d0306;color:#d8cfd0;font:inherit;font-size:11px;letter-spacing:.06em;appearance:none;background-image:linear-gradient(45deg,transparent 50%,#ff526b 50%),linear-gradient(135deg,#ff526b 50%,transparent 50%);background-position:calc(100% - 14px) 50%,calc(100% - 9px) 50%;background-size:5px 5px;background-repeat:no-repeat;cursor:pointer}
-#core-settings select:hover,#core-settings select:focus{border-color:#ff2244;outline:none}
-#core-settings select option{background:#0d0306;color:#d8cfd0}
+.model-label>span{display:block;font-size:10px;letter-spacing:.18em;color:#6f9a86;margin-bottom:5px;text-transform:uppercase}
+#core-settings select{display:block;width:100%;margin:0;padding:7px 10px;border:1px solid #143826;background:#06120c;color:#cfe8db;font:inherit;font-size:11px;letter-spacing:.06em;appearance:none;background-image:linear-gradient(45deg,transparent 50%,#67ffa4 50%),linear-gradient(135deg,#67ffa4 50%,transparent 50%);background-position:calc(100% - 14px) 50%,calc(100% - 9px) 50%;background-size:5px 5px;background-repeat:no-repeat;cursor:pointer}
+#core-settings select:hover,#core-settings select:focus{border-color:#4cf2ad;outline:none}
+#core-settings select option{background:#06120c;color:#cfe8db}
 .provider-row{display:grid;grid-template-columns:170px minmax(0,1fr);gap:10px;margin-bottom:10px}
-#core-settings input[type=password],#core-settings input[type=text]{padding:7px 10px;border:1px solid #3a0a10;background:#0d0306;color:#d8cfd0;font:inherit;font-size:11px;letter-spacing:.06em}
-#core-settings input[type=password]:focus,#core-settings input[type=text]:focus{border-color:#ff2244;outline:none}
-.check-row{display:flex;align-items:center;gap:9px;margin:8px 0;font-size:10px;letter-spacing:.12em;color:#a06a70;text-transform:uppercase;cursor:pointer}
-.check-row input[type=checkbox]{appearance:none;-webkit-appearance:none;width:15px;height:15px;flex:none;margin:0;padding:0;border:1px solid #4a0d14;border-radius:0;background:#0d0306;display:inline-grid;place-content:center;cursor:pointer;transition:.12s}
-.check-row input[type=checkbox]::after{content:'';width:8px;height:8px;background:#ff2244;transform:scale(0);transition:.1s;clip-path:polygon(14% 44%,0 65%,50% 100%,100% 16%,80% 0%,43% 62%)}
-.check-row input[type=checkbox]:checked{border-color:#ff2244}
+#core-settings input[type=password],#core-settings input[type=text]{padding:7px 10px;border:1px solid #143826;background:#06120c;color:#cfe8db;font:inherit;font-size:11px;letter-spacing:.06em}
+#core-settings input[type=password]:focus,#core-settings input[type=text]:focus{border-color:#4cf2ad;outline:none}
+.check-row{display:flex;align-items:center;gap:9px;margin:8px 0;font-size:10px;letter-spacing:.12em;color:#6f9a86;text-transform:uppercase;cursor:pointer}
+.check-row input[type=checkbox]{appearance:none;-webkit-appearance:none;width:15px;height:15px;flex:none;margin:0;padding:0;border:1px solid #1a4a38;border-radius:0;background:#06120c;display:inline-grid;place-content:center;cursor:pointer;transition:.12s}
+.check-row input[type=checkbox]::after{content:'';width:8px;height:8px;background:#4cf2ad;transform:scale(0);transition:.1s;clip-path:polygon(14% 44%,0 65%,50% 100%,100% 16%,80% 0%,43% 62%)}
+.check-row input[type=checkbox]:checked{border-color:#4cf2ad}
 .check-row input[type=checkbox]:checked::after{transform:scale(1)}
 .check-row input[type=checkbox]:disabled{opacity:.5;cursor:default}
 .council-help{display:flex;align-items:center;gap:10px}
-.council-count{margin-left:auto;font-size:11px;font-weight:700;color:#ff2244;border:1px solid #4a0d14;padding:1px 8px;letter-spacing:.1em}
+.council-count{margin-left:auto;font-size:11px;font-weight:700;color:#ff2244;border:1px solid #3a1020;padding:1px 8px;letter-spacing:.1em}
 .council-count.ok{color:#4cf2ad;border-color:#1d462d}
 .council-chips{display:flex;flex-wrap:wrap;gap:7px}
-.chip{border:1px solid #3a0a10;background:#0d0306;color:#9a7078;font:inherit;font-size:10px;letter-spacing:.08em;padding:5px 11px;cursor:pointer;text-transform:uppercase;transition:background .12s,color .12s,border-color .12s;clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,6px 100%,0 calc(100% - 6px))}
-.chip:hover:not(.off){border-color:#ff526b;color:#d8a0a6}
-.chip.on{background:#2a060c;border-color:#ff2244;color:#ff8a94;font-weight:700;box-shadow:0 0 10px #ff224422}
+.chip{border:1px solid #143826;background:#06120c;color:#7fae9a;font:inherit;font-size:10px;letter-spacing:.08em;padding:5px 11px;cursor:pointer;text-transform:uppercase;transition:background .12s,color .12s,border-color .12s;clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,6px 100%,0 calc(100% - 6px))}
+.chip:hover:not(.off){border-color:#4cf2ad;color:#a8d8c0}
+.chip.on{background:#0a2a1c;border-color:#4cf2ad;color:#a3f5cf;font-weight:700;box-shadow:0 0 10px #4cf2ad22}
 .chip.off{opacity:.35;cursor:not-allowed}
 .web-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px}
 .web-row label{display:block;margin:0}
 .web-row label>select{margin-top:5px}
-.cp-link{color:#ff526b;text-decoration:none;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
-.cp-link:hover{color:#ff8a94;text-decoration:underline}
-.core-prompts details{border-top:1px solid #26060b;padding:10px 0}
-.core-prompts summary{font-size:10px;letter-spacing:.18em;color:#a06a70;cursor:pointer;text-transform:uppercase}
-.core-prompts summary:hover{color:#ff526b}
-.core-prompts textarea{width:100%;margin-top:10px;padding:10px;border:1px solid #3a0a10;background:#0d0306;color:#d8cfd0;font:inherit;font-size:11px;line-height:1.6;resize:vertical}
-.core-prompts textarea:focus{border-color:#ff2244;outline:none}
-.settings-status{min-height:20px;margin:14px 0 0;font-size:11px;letter-spacing:.1em;color:#ff8a94;text-transform:uppercase}
+.cp-link{color:#c4a5ff;text-decoration:none;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.cp-link:hover{color:#d9c6ff;text-decoration:underline}
+.core-prompts details{border-top:1px solid #0e2418;padding:10px 0}
+.core-prompts summary{font-size:10px;letter-spacing:.18em;color:#6f9a86;cursor:pointer;text-transform:uppercase}
+.core-prompts summary:hover{color:#67ffa4}
+.core-prompts textarea{width:100%;margin-top:10px;padding:10px;border:1px solid #143826;background:#06120c;color:#cfe8db;font:inherit;font-size:11px;line-height:1.6;resize:vertical}
+.core-prompts textarea:focus{border-color:#4cf2ad;outline:none}
+.settings-status{min-height:20px;margin:14px 0 0;font-size:11px;letter-spacing:.1em;color:#c4a5ff;text-transform:uppercase}
 .settings-actions{display:flex;justify-content:space-between;gap:14px;margin-top:14px}
 .settings-actions .cp-btn{flex:1;text-align:center}
 @media(max-width:600px){.core-models{grid-template-columns:1fr}.provider-row{grid-template-columns:1fr}.web-row{grid-template-columns:1fr}#core-settings{padding:16px}#core-settings form{padding:16px}}

@@ -11,10 +11,13 @@ export function mountTerminals(root,toggle){
  const eye=document.getElementById('capri-face');eye.classList.add('terminal-eye');eye.hidden=true;root.append(eye);
  function lightning(card){
   if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
-  const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg'),bolt=document.createElementNS(ns,'path'),bounds=stage.getBoundingClientRect(),from=eye.getBoundingClientRect();
+  const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg'),bolt=document.createElementNS(ns,'path'),branch=document.createElementNS(ns,'path'),bounds=stage.getBoundingClientRect(),from=eye.getBoundingClientRect();
   const x=eye.hidden?16:from.left-bounds.left+from.width/2,y=eye.hidden?4:from.top-bounds.top+from.height/2,tx=card.offsetLeft+card.offsetWidth/2,ty=card.offsetTop+14;
   svg.setAttribute('class','terminal-lightning');svg.setAttribute('aria-hidden','true');svg.setAttribute('viewBox',`0 0 ${stage.clientWidth} ${stage.clientHeight}`);
-  let path=`M ${x} ${y}`;for(let i=1;i<7;i++){const t=i/7,jitter=(i%2?1:-1)*(7+Math.random()*14);path+=` L ${x+(tx-x)*t+jitter} ${y+(ty-y)*t-jitter/2}`;}path+=` L ${tx} ${ty}`;bolt.setAttribute('d',path);bolt.setAttribute('pathLength','1');svg.append(bolt);stage.append(svg);setTimeout(()=>svg.remove(),950);
+  const points=[[x,y]];let path=`M ${x} ${y}`;for(let i=1;i<7;i++){const t=i/7,jitter=(i%2?1:-1)*(7+Math.random()*14),px=x+(tx-x)*t+jitter,py=y+(ty-y)*t-jitter/2;points.push([px,py]);path+=` L ${px} ${py}`;}path+=` L ${tx} ${ty}`;
+  bolt.setAttribute('d',path);bolt.setAttribute('pathLength','1');bolt.setAttribute('class','bolt-main');svg.append(bolt);
+  if(points.length>4){const origin=points[2+Math.floor(Math.random()*2)],dx=origin[0]<tx?1:-1,len=40+Math.random()*70;let bpath=`M ${origin[0]} ${origin[1]}`;for(let i=1;i<3;i++)bpath+=` L ${origin[0]+dx*i*len/3+(Math.random()*14-7)} ${origin[1]+i*len/3}`;branch.setAttribute('d',bpath);branch.setAttribute('pathLength','1');branch.setAttribute('class','bolt-branch');svg.append(branch);}
+  stage.append(svg);setTimeout(()=>svg.remove(),1100);
  }
  function focus(entry){if(!entry||entry.state==='skipped')return;const from=eye.getBoundingClientRect();eye.hidden=false;entry.bar.prepend(eye);eye.setAttribute('aria-label','Capri reading '+entry.title);entry.card.dataset.active='true';for(const w of windows.values())if(w!==entry)delete w.card.dataset.active;
   const to=eye.getBoundingClientRect();if(from.width&&to.width&&!matchMedia('(prefers-reduced-motion: reduce)').matches)eye.animate([{transform:`translate(${from.left-to.left}px,${from.top-to.top}px)`},{transform:'translate(0,0)'}],{duration:450,easing:'ease-in-out'});

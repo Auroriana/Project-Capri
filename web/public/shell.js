@@ -391,7 +391,7 @@ async function pumpConversation(){
   syncDeliveryStatus();
  }catch(e){if(e.name==='AbortError'||currentChat?.stopped)return;err(e.message);queueRetryAt=Date.now()+30000;if(owner===account&&currentChat.activeBatch&&!currentChat.pending&&!currentChat.capture){currentChat.inputQueue=[...currentChat.activeBatch,...(currentChat.inputQueue||[])];delete currentChat.activeBatch;await persistChat();}}finally{queueWorking=false;}
 }
-function syncDeliveryStatus(){let it=$('msgs').querySelector('[data-delivery]');if(currentChat?.delivery?.messages.length){if(!it){it=msg('model','');it.dataset.delivery='true';setStatus(it,'Capri is typing');}}else it?.remove();}
+function syncDeliveryStatus(){const pending=$('msgs').querySelector('[data-pending]');let it=$('msgs').querySelector('[data-delivery]');if(currentChat?.delivery?.messages.length&&!pending){if(!it){it=msg('model','');it.dataset.delivery='true';setStatus(it,'Capri is typing');}}else it?.remove();}
 setInterval(()=>void pumpConversation(),250);
 $('f').onsubmit=async e=>{e.preventDefault();if(!signedIn){$('login').showModal();return;}
  if(workController.signal.aborted)workController=new AbortController();if(currentChat)currentChat.stopped=false;
@@ -469,3 +469,4 @@ async function initialize(){
  }catch(e){bootFailure(e,initialize);}
 }
 await initialize();
+

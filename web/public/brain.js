@@ -1,4 +1,4 @@
-// BRAIN — pipeline visualizer for the permanent Terminals tab.
+// BRAIN — pipeline visualizer for the permanent right-side neural panel.
 // Ingests the structured event log emitted by /api/chat and /api/personality
 // (NDJSON progress events with stage:'pipeline'), draws the neural map, and
 // replays saved logs without ever re-calling a model.
@@ -7,7 +7,8 @@
 // .model-node[data-state], .bolt[data-dir], .hud[data-state],
 // .meter[data-stage], #brain-glitch[data-active]. The core and every node sit
 // inside a plain positioning <g transform=…> so CSS transform animations on
-// #brain-core / .model-node never fight the layout transform.
+// #brain-core / .model-node never fight the layout transform. The core is a
+// pure-SVG pulsing soma (shell + rings + gradient); no image is involved.
 
 export const STAGE_ORDER=['routing','scope','search','evidence','planning','answering','verifying','council','personality','web'];
 export const STAGE_LABELS={routing:'ROUTE',scope:'SCOPE',search:'SEARCH',evidence:'EVIDENCE',planning:'PLAN',answering:'ANSWER',verifying:'VERIFY',council:'COUNCIL',personality:'PERSONA',web:'WEB',merge:'MERGE'};
@@ -136,10 +137,13 @@ export function mountBrain(root,{terminals}={}){
     const old=slots.get(slot);if(old)retireNode(old.node,true);
     const g=svgEl('g',{transform:`translate(${slotPoint(slot)[0].toFixed(1)},${slotPoint(slot)[1].toFixed(1)})`});
     const inner=svgEl('g',{class:'model-node','data-slot':slot,'data-state':'spawning',tabindex:'0',role:'button','aria-label':(AGENT_LABELS[agent]||agent)+' node'});
-    const box=svgEl('rect',{class:'node-box',x:-78,y:-26,width:156,height:52,rx:2});
-    const name=svgEl('text',{class:'node-name',x:0,y:-3,'text-anchor':'middle'});
-    const sub=svgEl('text',{class:'node-model',x:0,y:16,'text-anchor':'middle'});
-    name.textContent=AGENT_LABELS[agent]||agent.toUpperCase();sub.textContent=modelShort(model);
+    const box=svgEl('rect',{class:'node-box',x:-86,y:-30,width:172,height:60,rx:2});
+    const name=svgEl('text',{class:'node-name',x:0,y:-4,'text-anchor':'middle'});
+    const subText=modelShort(model);
+    // Long model ids are squeezed into the box (spacingAndGlyphs) instead of
+    // clipping at the node edge; short names keep their natural spacing.
+    const sub=svgEl('text',{class:'node-model',x:0,y:18,'text-anchor':'middle',...(subText.length>18?{textLength:158,lengthAdjust:'spacingAndGlyphs'}:{})});
+    name.textContent=AGENT_LABELS[agent]||agent.toUpperCase();sub.textContent=subText;
     inner.append(box,name,sub);g.append(inner);layer.nodes.append(g);
     const den=svgEl('g',{class:'dendrite','data-slot':slot,'data-state':'growing'});
     const d=dendritePath(slot),main=svgEl('path',{class:'dendrite-main',d:d.main,pathLength:1200}),twig=svgEl('path',{class:'dendrite-twig',d:d.twig,pathLength:1200});
@@ -286,7 +290,7 @@ export function mountBrain(root,{terminals}={}){
     ev.seq=++seq;log.push(ev);apply(ev,true);
   }
 
-  // ---------- completion sequence (Blackwall glitch → pulses → photo) ----------
+  // ---------- completion sequence (Blackwall glitch → triple pulse → shockwave) ----------
   function complete(){
     phase('merging');
     const finish=()=>{phase('done');retractNodes();};

@@ -1,6 +1,6 @@
 import {createReranker} from '../lib/nvidia-rerank.js';
 import {withRuntime,rememberFailure} from '../lib/runtime-awareness.js';
-import {generateWithOverflow,failoverUpstream} from '../lib/provider-routing.js';
+import {generateWithOverflow,failoverFreeChain,failoverSelectedChain} from '../lib/provider-routing.js';
 import {withRequest,registerRequest,stopRequests,requestFetch as fetch,checkRequest} from '../lib/request-control.js';
 import {withProviderCredentials,saveProviderCredential} from '../lib/provider-credentials.js';
 import {createCouncil,councilStep} from '../lib/model-council.js';
@@ -166,12 +166,15 @@ async function handleRequest(req,res,generationController){
       // Nemotron 3 Ultra 550B mirrored :free catches text turns when NIM
       // rate-limits, Super VL :free catches vision turns before Nano Omni.
       const legs=useVision?[VISION_OVERFLOW_FREE,VISION_OVERFLOW]:primary===TEXT_PRIMARY&&!media?[TEXT_OVERFLOW,TEXT_OVERFLOW_FREE]:[];
-      const freeFailover=error=>failoverUpstream(error)||error.status===429||error.status===402;
-      const legFallback=index=>index<legs.length?input=>generateWithOverflow(legs[index],input,{generate:(m,inner)=>externalCall(m,inner),failoverOn:freeFailover,onFallback:reason=>{if(streaming&&reason!=='budget')emit('progress',{stage:'model-output',message:modelLabel(legs[index])+' is rate-limited or unreachable right now. Switching this step to '+(index+1<legs.length?modelLabel(legs[index+1]):'Gemini')+'; the full context is preserved.'});},fallback:legFallback(index+1)}):geminiStage(primary,settings);
+      // Provider rejections (bad key, retired id, 400/401/403/404) hop the
+      // chain instead of dead-ending the turn: a free leg is next, and the
+      // final Gemini hop stays quota-guarded. Without free legs (a model the
+      // user pinned), only auth/model rejections hop; rate limits surface.
+      const legFallback=index=>index<legs.length?input=>generateWithOverflow(legs[index],input,{generate:(m,inner)=>externalCall(m,inner),failoverOn:failoverFreeChain,onFallback:reason=>{if(streaming&&reason!=='budget')emit('progress',{stage:'model-output',message:modelLabel(legs[index])+' is rate-limited or unreachable right now. Switching this step to '+(index+1<legs.length?modelLabel(legs[index+1]):'Gemini')+'; the full context is preserved.'});},fallback:legFallback(index+1)}):geminiStage(primary,settings);
       if(primary!==id&&streaming)emit('progress',{stage:'model-output',message:'Attachments need a vision model. Using '+modelLabel(primary)+' for this turn; the full context is preserved.'});
       return generateWithOverflow(primary,request,{
         generate:(model,input)=>externalCall(model,input),
-        failoverOn:legs.length?freeFailover:undefined,
+        failoverOn:legs.length?failoverFreeChain:failoverSelectedChain,
         onFallback:reason=>{if(!streaming)return;if(reason==='budget')emit('progress',{stage:'model-output',message:'Using Gemini for this larger stage, with the full context preserved.'});else emit('progress',{stage:'model-output',message:modelLabel(primary)+' is rate-limited or unreachable right now. Switching this step to '+(legs.length?modelLabel(legs[0]):'Gemini')+'; the full context is preserved.'});},
         fallback:legFallback(0)
       });
@@ -189,7 +192,13 @@ async function handleRequest(req,res,generationController){
       if(req.headers.accept?.includes('application/x-ndjson')){streaming=true;res.setHeader('Content-Type','application/x-ndjson');res.flushHeaders?.();heartbeat=setInterval(()=>emit('heartbeat',{}),10000);}
       const retryDeadline=Date.now()+135000;
       const generateOnce=async (request,{phase=body.action}={})=>{
-        checkRequest();const started=Date.now(),personalityModel=phase==='capri-turn'?(settings.router||settings.personality):settings.personality;
+        checkRequest();const started=Date.now();
+        // Model hierarchy: the CORE router call runs on the routing model. A
+        // turn the CORE marked "light" (casual chat, quick reactions) is
+        // voiced on the quick model for token efficiency; everything else —
+        // deep replies, researched reports, operational styling — uses the
+        // full personality model.
+        const personalityModel=phase==='capri-turn'?(settings.router||settings.personality):body.effort==='light'?(settings.light||settings.router||settings.personality):settings.personality;
         activeModel=personalityModel;activePhase=phase;if(phase!=='capri-turn')request=withRuntime(request,{owner:user.id,model:personalityModel,phase,settings});
         const pLeg=PIPE_MAP[phase]||['personality','personality'];
         pipe(pLeg[0],pLeg[1],'prompt',((request.systemInstruction?.parts||[]).map(p=>p.text||'').join(' ')+'\nUSER '+((request.contents||[]).at(-1)?.parts||[]).map(p=>p.text||'[attachment]').join(' ')).slice(0,1600),{model:personalityModel,t_start:started});

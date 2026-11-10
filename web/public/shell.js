@@ -338,7 +338,7 @@ async function runPending(){
    if(first.route==='reply'&&currentChat.inputQueue?.length){it.remove();await persistChat();return;}
    it.remove();queueReply(saved,first.route==='reply');cool();await persistChat();
  }catch(x){brain.fail();if(pending.cancelled||signal.aborted){delete pending.retryAt;if(!pending.cancelled)err('Paused by you. Use Resume reply to continue.');return;}const transient=![400,413].includes(x.status)&&x.name!=='AbortError'&&([429,502,503,504].includes(x.status)||/quota|limit|timed out|connection|fetch/i.test(x.message));pending.retryCount=(pending.retryCount||0)+1;const retrying=transient&&pending.retryCount<=5;if(retrying)pending.retryAt=Date.now()+Math.min(180000,15000*2**(pending.retryCount-1));else delete pending.retryAt;
- const text=requestErrorText(x.status,retrying);it.remove();err('');
+ const text=requestErrorText(x.status,retrying,x.message);it.remove();err('');
  let failure=currentChat.messages.find(m=>m.id===pending.failureId);
  if(!failure){failure={id:crypto.randomUUID(),turn:pending.turnId,role:'model',event:'request.error',started:Date.now(),text};pending.failureId=failure.id;currentChat.messages.push(failure);const node=msg('model',text);messageTools(node,failure);}
  else{failure.text=text;failure.edited=Date.now();const node=[...$('msgs').children].find(n=>n.dataset.message===failure.id);if(node)showPersonality(node,failure);}
@@ -431,8 +431,38 @@ function ask(label,val=''){return new Promise(ok=>{const d=$('ask');let v=null;$
 function confirmAction(label,okText='Confirm'){return new Promise(ok=>{const d=$('ask');let v=false;$('al').textContent=label;$('av').hidden=true;$('ao').textContent=okText;
  d.onclose=()=>{$('av').hidden=false;$('ao').textContent='OK';ok(v)};$('af').onsubmit=e=>{e.preventDefault();v=true;d.close()};$('ac').onclick=()=>d.close();d.showModal()})}
 // ---- app views; note drafts are kept independently of chat navigation.
-function tab(n){stopFlight();const q=n==='quick',notes=n===true,term=n==='terminals',other=q||notes||term;if(other)setExpression(term||notes?'focused_analysis':'neutral_attention');else setExpression(currentChat?.messages.findLast(m=>m.role==='model')?.expression);$('ht').hidden=other;$('chat').hidden=other;$('notes').hidden=!notes;$('quick').hidden=!q;$('terminals-view').hidden=!term;$('app').classList.toggle('nm',other);$('tc').classList.toggle('on',!other);$('tn').classList.toggle('on',notes);$('tq').classList.toggle('on',q);$('tt').classList.toggle('on',term);window.history.replaceState(null,'',location.pathname+location.search+(other?(q?'#quick':term?'#brain':'#notes'):''));if(notes&&signedIn)workspace.refresh().catch(e=>err(e.message));if(q&&signedIn)quick.refresh();brain.setVisible(term);}
-$('tc').onclick=()=>tab(false);$('tn').onclick=()=>tab(true);$('tq').onclick=()=>tab('quick');$('tt').onclick=()=>tab('terminals');
+// ---- BRAIN: always visible on the right of the screen (desktop) ----
+// The neural-core panel keeps its own column beside chat/notes/quick; the
+// BRAIN header button toggles it. On mobile it becomes a slide-in overlay
+// that starts closed so it never covers the conversation.
+const brainMQ=matchMedia('(max-width:860px)');
+let brainDesktop=true,brainMobile=false;
+try{brainDesktop=localStorage.getItem('aria.brain')!=='off';}catch{}
+const brainVisible=()=>brainMQ.matches?brainMobile:brainDesktop;
+function applyBrain(){
+ const on=brainVisible();
+ $('app').classList.toggle('brain-off',!brainMQ.matches&&!on);
+ $('app').classList.toggle('brain-open',brainMQ.matches&&on);
+ $('tt').classList.toggle('on',on);
+ $('tt').setAttribute('aria-pressed',String(on));
+ brain.setVisible(on);
+}
+function setBrain(on){
+ if(brainMQ.matches)brainMobile=on;
+ else{brainDesktop=on;try{localStorage.setItem('aria.brain',on?'on':'off');}catch{}}
+ applyBrain();
+}
+brainMQ.addEventListener?.('change',applyBrain);
+function tab(n){stopFlight();
+ if(n==='terminals'){setBrain(true);return;}
+ const q=n==='quick',notes=n===true,other=q||notes;
+ if(other)setExpression('focused_analysis');else setExpression(currentChat?.messages.findLast(m=>m.role==='model')?.expression);
+ $('ht').hidden=other;$('chat').hidden=other;$('notes').hidden=!notes;$('quick').hidden=!q;$('app').classList.toggle('nm',other);$('tc').classList.toggle('on',!other);$('tn').classList.toggle('on',notes);$('tq').classList.toggle('on',q);
+ window.history.replaceState(null,'',location.pathname+location.search+(other?(q?'#quick':'#notes'):''));
+ if(notes&&signedIn)workspace.refresh().catch(e=>err(e.message));if(q&&signedIn)quick.refresh();
+}
+$('tc').onclick=()=>tab(false);$('tn').onclick=()=>tab(true);$('tq').onclick=()=>tab('quick');$('tt').onclick=()=>setBrain(!brainVisible());
+applyBrain();
 try{$('concise').checked=localStorage.getItem('aria.mirage')!=='mir';}catch{$('concise').checked=true;}
 $('overclock').setAttribute('aria-pressed',String(!$('concise').checked));
 $('overclock').onclick=()=>{$('concise').checked=!$('concise').checked;$('concise').onchange();};
@@ -452,7 +482,7 @@ async function handleVoiceStop(){
   if(!data.length){err('');return;}
   const r=await api('transcribe',{audio:{mime,data}});
   const q=$('q');q.value=(q.value?q.value+' ':'')+r.text.trim();resizeComposer();q.focus();err('');
- }catch(e){err(requestErrorText(e,'Transcription failed.'));}
+ }catch(e){err(requestErrorText(e?.status,false,e?.message||'Transcription failed.'));}
 }
 $('voice').onclick=async()=>{
  if(recording){await handleVoiceStop();return;}
@@ -470,7 +500,7 @@ async function pushCapture(promise,label){
   const blob=await promise,data=await b64(blob);
   if(files.reduce((n,x)=>n+x.data.length,0)+data.length>3.9e6){err('Attachments are too large (about 2.8 MB total).');return;}
   files.push({mime:'image/jpeg',data,name:label});renderAtt();err('');
- }catch(e){err(e?.name==='NotAllowedError'?'Capture was denied or cancelled.':requestErrorText(e,'Capture failed.'));}
+ }catch(e){err(e?.name==='NotAllowedError'?'Capture was denied or cancelled.':requestErrorText(e?.status,false,e?.message||'Capture failed.'));}
 }
 if(captureSupported()){
  $('camera').title='Camera snapshot';$('camera').setAttribute('aria-label','Camera snapshot');

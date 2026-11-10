@@ -13,16 +13,25 @@
  <div class="chat-options"><div class="pick"><button type="button" id="mp" class="mb" aria-haspopup="true" aria-label="Model">MODEL⌄</button><div id="pm" hidden></div></div><input type="hidden" id="model"><div hidden><button id="mc" type="button"></button><button id="mv" type="button"></button></div><input type="hidden" id="mode" value="general"><select id="vault" aria-label="Vault" hidden></select><input type="checkbox" id="concise" hidden><span id="token-count" class="token-count">0</span></div></footer></section>
 <section id="notes" class="view" hidden></section>
 <section id="quick" class="view" hidden></section>
-<section id="terminals-view" class="view" hidden>
+<section id="terminals-view" class="view">
+ <header class="brain-bar"><b>NEURAL CORE</b><span class="brain-phase"><i aria-hidden="true"></i><em>LIVE</em></span></header>
  <div id="brain" data-phase="idle" data-replay="off">
   <canvas id="brain-glitch" aria-hidden="true"></canvas>
   <svg id="brain-map" viewBox="0 0 1000 470" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Neural map of the current request: the core routes work to sub-model nodes">
+   <defs>
+    <radialGradient id="core-grad" cx="50%" cy="42%" r="66%">
+     <stop offset="0%" stop-color="#ff2a5e"/>
+     <stop offset="52%" stop-color="#6b1740"/>
+     <stop offset="100%" stop-color="#10050d"/>
+    </radialGradient>
+   </defs>
    <g id="brain-dendrites"></g>
    <g id="brain-pulses"></g>
    <g transform="translate(500,235)"><g id="brain-core">
+    <circle class="core-ring r2" r="114"/>
+    <circle class="core-ring r1" r="99"/>
     <circle class="core-shell" r="86"/>
     <circle class="core-soma" r="64"/>
-    <image class="core-face" href="/capri.png" x="-60" y="-60" width="120" height="120" preserveAspectRatio="xMidYMid slice" aria-hidden="true"/>
    </g></g>
    <g id="brain-nodes"></g>
    <g id="brain-bolts"></g>

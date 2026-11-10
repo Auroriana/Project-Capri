@@ -17,17 +17,18 @@ const personalityDefault=CAPRI_CORE;
 // emit strict JSON on a quota-guarded free tier and run several times per
 // turn, so burning the 40-RPM NIM budget on routing noise would starve the
 // actual conversation. Attachment turns still see images via the vision chain.
-export const defaults={max_history_tokens:3000,router:'gemini-3.5-flash-lite',reasoning:'gemini-3.5-flash-lite',analyzing:'gemini-3.5-flash-lite',personality:'nim:nvidia/nemotron-3-ultra-550b-a55b',councilEnabled:false,councilModels:['groq:openai/gpt-oss-120b','gemini-3.5-flash-lite'],enabled:true,memory:true,web:'auto',webModel:'gemini-2.5-flash',
+// `verifying` pins the fact-check pass; empty means it follows the answerer.
+export const defaults={max_history_tokens:3000,router:'gemini-3.5-flash-lite',reasoning:'gemini-3.5-flash-lite',analyzing:'gemini-3.5-flash-lite',verifying:'',personality:'nim:nvidia/nemotron-3-ultra-550b-a55b',councilEnabled:false,councilModels:['groq:openai/gpt-oss-120b','gemini-3.5-flash-lite'],enabled:true,memory:true,web:'auto',webModel:'gemini-2.5-flash',
  prompts:{routing:ROUTER_SYSTEM,search:RESEARCH_SYSTEM,answer:VAULT_SYSTEM,lookup:LOOKUP_SYSTEM,concise:CONCISE_INSTRUCTION,general:'You are Capri, the Capricorn personal research assistant. This is general chat; you have not searched the user’s vault. Be clear about uncertainty.',personality:personalityDefault}};
 export function settingsOf(value={}){
  if(!value||typeof value!=='object'||Array.isArray(value))throw Object.assign(new Error('Invalid core settings.'),{status:400});
  const s={...defaults,...value,prompts:{...defaults.prompts,...value.prompts}};
  if(legacyPersonalities.includes(s.prompts.personality))s.prompts.personality=defaults.prompts.personality;
- for(const k of ['router','reasoning','analyzing','personality'])if(!(['router','reasoning'].includes(k)&&s[k]==='' )&&![...coreModels,...externalModels].some(m=>m.id===s[k]))throw Object.assign(new Error('Unsupported core model.'),{status:400});
+ for(const k of ['router','reasoning','analyzing','verifying','personality'])if(!(['router','reasoning','verifying'].includes(k)&&s[k]==='' )&&![...coreModels,...externalModels].some(m=>m.id===s[k]))throw Object.assign(new Error('Unsupported core model.'),{status:400});
  if(typeof s.councilEnabled!=='boolean'||!Array.isArray(s.councilModels)||s.councilModels.length<2||s.councilModels.length>4||new Set(s.councilModels).size!==s.councilModels.length||s.councilModels.some(id=>![...coreModels,...externalModels].some(m=>m.id===id)))throw Object.assign(Error('Choose 2–4 distinct supported review models.'),{status:400});
  if(!['off','ask','auto'].includes(s.web))throw Object.assign(new Error('Invalid web search setting.'),{status:400});
  for(const k of ['enabled','memory'])if(typeof s[k]!=='boolean')throw Object.assign(new Error('Invalid personality switch.'),{status:400});
  for(const k of Object.keys(defaults.prompts))if(typeof s.prompts[k]!=='string'||!s.prompts[k].trim()||s.prompts[k].length>16000)throw Object.assign(new Error('Instructions must contain 1–16000 characters.'),{status:400});
- return {max_history_tokens:Number.isInteger(s.max_history_tokens)?Math.max(256,Math.min(12000,s.max_history_tokens)):3000,councilEnabled:s.councilEnabled,councilModels:[...s.councilModels],router:s.router,reasoning:s.reasoning,analyzing:s.analyzing,personality:s.personality,enabled:true,memory:s.memory,web:s.web,webModel:s.webModel||'auto',prompts:Object.fromEntries(Object.keys(defaults.prompts).map(k=>[k,s.prompts[k]]))};
+ return {max_history_tokens:Number.isInteger(s.max_history_tokens)?Math.max(256,Math.min(12000,s.max_history_tokens)):3000,councilEnabled:s.councilEnabled,councilModels:[...s.councilModels],router:s.router,reasoning:s.reasoning,analyzing:s.analyzing,verifying:s.verifying||'',personality:s.personality,enabled:true,memory:s.memory,web:s.web,webModel:s.webModel||'auto',prompts:Object.fromEntries(Object.keys(defaults.prompts).map(k=>[k,s.prompts[k]]))};
 }
 

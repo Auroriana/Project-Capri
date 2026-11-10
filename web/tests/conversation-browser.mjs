@@ -44,27 +44,31 @@ try{
  assert.equal(await page.locator('#msgs>.m').count(),40);const initialPages=pageReads;
  await page.locator('#scroll').evaluate(n=>n.scrollTop=0);await page.waitForFunction(()=>document.querySelectorAll('#msgs>.m').length>=80);assert.ok(pageReads>initialPages);
  const send=async text=>{await page.locator('#q').fill(text);await page.locator('#send').click();await page.waitForFunction(()=>!document.querySelector('#send').disabled);};
- await send('Should I leave for the train now?');await page.getByText('Delta out now, obv.',{exact:true}).waitFor();assert.equal(await page.locator('.block-followup').count(),2);assert.equal(turns.length,1);
+ // Replies arrive as paced bubbles (delivery pacing), so wait for the last block.
+ await send('Should I leave for the train now?');await page.getByText('Delta out now, obv.',{exact:true}).waitFor();await page.getByText('For twenty extra minutes? It’s just not worth it.',{exact:true}).waitFor({timeout:15000});assert.equal(turns.length,1);
  await send('Remind me to stretch');await page.getByText('When should I remind you?',{exact:false}).waitFor();assert.equal(captures.length,0);
- await send('in 5 minutes');assert.ok(Date.parse(captures[0].due)>Date.now());assert.equal(await page.locator('#app').evaluate(n=>n.classList.contains('terminals-open')),true);
- await send('Capri note this: Leave twenty minutes earlier.');await send('Really? I know right.');assert.equal(turns.length,2);await page.getByText('Also, finished that note.',{exact:true}).waitFor({timeout:12000});
+ await send('in 5 minutes');await page.locator('#rag-logs .log-pane').first().waitFor({state:'attached'});for(let i=0;i<40&&!captures.length;i++)await new Promise(r=>setTimeout(r,100));assert.ok(Date.parse(captures[0].due)>Date.now());
+ await send('Capri note this: Leave twenty minutes earlier.');await send('Really? I know right.');for(let i=0;i<30&&turns.filter(t=>t.action==='turn').length<2;i++)await new Promise(r=>setTimeout(r,200));assert.equal(turns.filter(t=>t.action==='turn').length,2,'capture rewrites are styleAction calls, not conversation decisions');await page.getByText('Also, finished that note.',{exact:true}).waitFor({timeout:12000});
  await page.locator('#overclock').click();assert.equal(await page.locator('#overclock').getAttribute('aria-pressed'),'true');assert.equal(await page.locator('#overclock').evaluate(n=>n.nextElementSibling.id),'voice');assert.equal(await page.getByRole('button',{name:'SEARCH NOTES',exact:true}).count(),0);
- await page.locator('.terminal-title button[aria-label^="Minimize"]').last().click();assert.ok(await page.locator('.terminal-window.minimized').count());
- await page.locator('.terminal-title button[aria-label^="Minimize"]').last().click();
- const bar=page.locator('.terminal-title').last();const pos=await bar.boundingBox();await page.mouse.move(pos.x+35,pos.y+12);await page.mouse.down();await page.mouse.move(pos.x+70,pos.y+32);await page.mouse.up();
+ // Stacked RAG log panes: no floating windows, every pane has a title and a log body.
+ const paneCount=await page.locator('#rag-logs .log-pane').count();assert.ok(paneCount>=1);
+ for(const pane of await page.locator('#rag-logs .log-pane').all()){assert.ok(await pane.locator('.log-title').count());assert.ok(await pane.locator('.log-content').count());}
  await page.locator('#q').fill('What did I save in my notes about the morning commute?');await page.locator('#send').click();
- await page.locator('.terminal-window[data-active=true] #capri-face').waitFor({timeout:10000}).catch(async e=>{console.error(await page.locator('#err').textContent(),await page.locator('#terminals').innerText());throw e;});const firstEye=await page.locator('#capri-face').evaluate(n=>n.closest('.terminal-window').querySelector('strong').textContent);
- await page.waitForFunction(first=>document.querySelector('#capri-face').closest('.terminal-window')?.querySelector('strong').textContent!==first,firstEye);await page.waitForFunction(()=>!document.querySelector('#send').disabled);
- assert.equal(await page.locator('.terminal-window[data-state=skipped]').count(),1);assert.ok(await page.locator('.terminal-window[data-state=accessed]').count());
+ await page.locator('#rag-logs .log-pane[data-stage=evidence]').first().waitFor({state:'attached',timeout:10000});
+ await page.waitForFunction(()=>!document.querySelector('#send').disabled);
+ assert.equal(await page.locator('#rag-logs .log-pane[data-state=skipped]').count(),1,'the over-budget note reads as skipped');
+ for(let i=0;i<30&&!await page.locator('#rag-logs .log-pane[data-state=done]').count();i++)await new Promise(r=>setTimeout(r,100));
+ assert.ok(await page.locator('#rag-logs .log-pane[data-state=done]').count(),'cited notes settle as done');
  await page.screenshot({path:new URL('conversation-desktop.png',output).pathname.replace(/^\/(.:)/,'$1')});
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  await page.waitForFunction(()=>document.querySelector('#app>main').getBoundingClientRect().width>=innerWidth-1);
  await page.screenshot({path:new URL('conversation-mobile-overlay.png',output).pathname.replace(/^\/(.:)/,'$1')});
- await page.getByRole('button',{name:'Hide',exact:true}).click();assert.equal(await page.locator('#app').evaluate(n=>n.classList.contains('terminals-open')),false);await page.locator('#pt').click();assert.equal(await page.locator('#app').evaluate(n=>n.classList.contains('terminals-open')),true);
- await page.getByRole('button',{name:'Hide',exact:true}).click();await send('What are today’s reminders?');await page.getByText('Today’s reminders:',{exact:false}).first().waitFor();await page.locator('#pt').click();
- await page.getByRole('button',{name:'Hide',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#terminals').getBoundingClientRect().top>=innerHeight);await page.screenshot({path:new URL('conversation-mobile.png',output).pathname.replace(/^\/(.:)/,'$1')});
+ // The BRAIN tab is a permanent view: #tt switches to it, chat switches back.
+ await page.locator('#tt').click();await page.waitForFunction(()=>document.querySelector('#brain')?.getAttribute('data-phase')==='done',null,{timeout:9000});assert.equal(await page.locator('#terminals-view').evaluate(n=>!n.hidden),true);assert.equal(await page.locator('#brain').getAttribute('data-phase'),'done');await page.locator('#tc').click();assert.equal(await page.locator('#terminals-view').evaluate(n=>n.hidden),true);
+ await send('What are today’s reminders?');await page.locator('#rag-logs .log-pane').filter({hasText:'Today’s reminders:'}).first().waitFor({state:'attached'});await page.locator('#tt').click();
+ await page.locator('#rag-logs .log-pane').filter({hasText:'Today’s reminders:'}).first().waitFor();await page.locator('#tc').click();await page.screenshot({path:new URL('conversation-mobile.png',output).pathname.replace(/^\/(.:)/,'$1')});
  await page.reload();await page.locator('#capri-loading').waitFor({state:'hidden'});await page.getByText('Also, finished that note.',{exact:true}).waitFor();assert.deepEqual(errors,[]);
  await page.evaluate(async()=>{const connect=name=>new Promise((resolve,reject)=>{const r=indexedDB.open(name);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});const old=await connect('aria-conversations');await new Promise((resolve,reject)=>{const tx=old.transaction('chats','readwrite');tx.objectStore('chats').put({key:'fixture@example.com:deleted',owner:'fixture@example.com',id:'deleted',deleted:true});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});old.close();const db=await connect('capri-timeline');await new Promise((resolve,reject)=>{const tx=db.transaction('accounts','readwrite');tx.objectStore('accounts').delete('fixture@example.com');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});db.close();});
  await page.reload();await page.locator('#capri-loading').waitFor({state:'hidden'});assert.deepEqual(errors,[]);
- console.log('PASS: pagination, no empty popup, message blocks, reminder clarification, nonblocking note completion, Overclock beside microphone, inferred retrieval, moving eye, read/skipped colors, randomized draggable terminals, mobile overlay/hide, live reminder lookup and persistence.');
+ console.log('PASS: pagination, no empty popup, message blocks, reminder clarification, nonblocking note completion, Overclock beside microphone, inferred retrieval, stacked RAG log panes with read/skipped states, permanent BRAIN tab, mobile layout, live reminder lookup and persistence.');
 }finally{await browser?.close();server.closeAllConnections();await new Promise(r=>server.close(r));}

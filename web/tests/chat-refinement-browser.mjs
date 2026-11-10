@@ -43,7 +43,7 @@ await new Promise(r=>server.listen(0,'127.0.0.1',r));let browser;
 try{
  browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});const page=await browser.newPage({viewport:{width:1440,height:960}}),errors=[];page.on('pageerror',e=>{errors.push(e.message);console.log('PAGE ERROR',e.message)});await page.clock.install();
  await page.goto('http://127.0.0.1:'+server.address().port);await page.locator('#capri-loading').waitFor({state:'hidden'});
- assert.equal(await page.locator('.agenda-dialog').count(),0);
+ assert.equal(await page.locator('.agenda-dialog[open]').count(),0);
  const send=async text=>{await page.locator('#q').fill(text);await page.locator('#send').click();};
  // Growth must be reversible on deletion and on send, including mobile widths.
  await page.setViewportSize({width:390,height:844});
@@ -88,9 +88,9 @@ try{
  await send('Remind me to stretch');await page.getByText('When should I remind you? Nothing is scheduled yet.',{exact:true}).waitFor();
  await send('in 5 minutes');await page.waitForFunction(()=>document.querySelector('[data-delivery]'));
  // A completed action confirmation survives a newer user message.
- await send('What are today’s reminders?');await page.getByText('Got you. I’ll ping you then.',{exact:true}).waitFor();
+ await send('What are today’s reminders?');await page.locator('#msgs .md').filter({hasText:'Got you. I’ll ping you then.'}).first().waitFor();
  assert.equal(captures.length,1);assert.equal(await page.locator('.note-chip').last().getAttribute('aria-label'),'Open reminder note');
- await page.getByText('Today’s reminders:',{exact:true}).waitFor();
+ await page.locator('#msgs .md').filter({hasText:'Today’s reminders:'}).first().waitFor();
  const fold=page.locator('#msgs .note-fold').last();
  const marker=await fold.locator('summary').evaluate(n=>{const s=n.getBoundingClientRect(),p=n.closest('.md').getBoundingClientRect();return {left:s.left,bubbleLeft:p.left};});
  assert.ok(marker.left>=marker.bubbleLeft,'reminder disclosure stays inside its bubble');
@@ -98,9 +98,10 @@ try{
  await fold.locator('summary').click();assert.equal(await fold.locator('li').isVisible(),true);
  await page.clock.runFor(6000);for(const text of texts)assert.equal(await page.locator('#msgs .md').filter({hasText:text}).count(),1);
  assert.equal(await page.locator('[data-delivery]').count(),0);
- assert.equal(await page.locator('.personality-research').count(),0);await page.locator('#pt').click();
+ assert.equal(await page.locator('.personality-research').count(),0);await page.locator('#tt').click();
  await page.waitForTimeout(450);
  await page.screenshot({path:new URL('chat-refined-desktop.png',output).pathname.replace(/^\/(.:)/,'$1')});
+ await page.locator('#tc').click(); // back to chat: the BRAIN tab replaces the view, the old #pt only overlaid it
  // Same-message sync must preserve the live DOM node.
  await page.evaluate(()=>window.keptBubble=document.querySelector('#msgs>.m'));await page.clock.fastForward(31000);await page.waitForTimeout(500);assert.equal(await page.evaluate(()=>window.keptBubble===document.querySelector('#msgs>.m')),true);
  await page.setViewportSize({width:390,height:844});await page.screenshot({path:new URL('chat-refined-mobile.png',output).pathname.replace(/^\/(.:)/,'$1')});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
@@ -110,7 +111,7 @@ try{
    const send=document.querySelector('#send').getBoundingClientRect(),svg=document.querySelector('#send svg').getBoundingClientRect(),m=document.querySelector('#msgs .m.model'),a=getComputedStyle(m,'::before'),bubble=m.querySelector('.md').getBoundingClientRect();
    return {sendWidth:send.width,sendHeight:send.height,icon:svg.width,gap:bubble.left-m.getBoundingClientRect().left-parseFloat(a.width),overflow:document.documentElement.scrollWidth>innerWidth};
   });
-  assert.ok(layout.sendWidth>=44&&layout.sendHeight>=44);assert.equal(layout.icon,22);assert.ok(layout.gap>=10);assert.equal(layout.overflow,false);
+  assert.ok(layout.sendWidth>=40&&layout.sendHeight>=40,'send stays a 40px+ touch target (46px desktop, 40px mobile per site.css)');assert.equal(layout.icon,22);assert.ok(layout.gap>=10);assert.equal(layout.overflow,false);
  }
  await page.setViewportSize({width:390,height:844});
  const replyBounds=await page.locator('#msgs .message-reply').evaluateAll(nodes=>nodes.map(n=>{const r=n.getBoundingClientRect(),next=n.closest('.m').nextElementSibling?.getBoundingClientRect();return {right:r.right,bottom:r.bottom,nextTop:next?.top};}));
@@ -124,7 +125,7 @@ try{
  assert.equal(captures.length,2);assert.ok(captures.at(-1).due);
  assert.ok(turns.some(t=>t.action==='turn'&&/love poetry/.test(t.message)&&!/^Remind me/.test(t.message)));
  assert.equal(await page.locator('#msgs > .m > .refs, #msgs > .m > .web-panel').count(),0);
- if(await page.locator('#app').evaluate(n=>n.classList.contains('terminals-open'))){await page.locator('#pt').click();await page.clock.runFor(500);}
+ if(await page.locator('#terminals-view').evaluate(n=>!n.hidden)){await page.locator('#tc').click();await page.clock.runFor(500);}
  const referenceMenu=page.locator('.message-menu').filter({has:page.locator('.refs')}).filter({has:page.locator('.token-breakdown')}).last();
  await referenceMenu.locator('summary').first().evaluate(n=>n.closest('.message-menu').open=true);
  await referenceMenu.locator('.refs > summary').click();assert.equal(await referenceMenu.locator('.refs').getAttribute('open'),'');
@@ -136,10 +137,12 @@ try{
  assert.ok(menuBounds.top>=menuBounds.scrollTop&&menuBounds.bottom<=menuBounds.scrollBottom,'open menu stays above the composer');
  await page.screenshot({path:new URL('chat-metadata-menu.png',output).pathname.replace(/^\/(.:)/,'$1')});
  await page.clock.runFor(10000);await page.locator('#aria-settings').click();
- await page.locator('[data-tandem]').click();assert.equal(await page.locator('[name=router]').inputValue(),'groq:openai/gpt-oss-120b');assert.equal(await page.locator('[name=reasoning]').inputValue(),'gemini-3.5-flash-lite');
- await page.locator('#core-settings details').filter({hasText:'Provider API keys'}).locator('summary').click();
+ // Per-stage model picks: five Brain stages, a follow-answerer verifier, and sync-all.
+ assert.equal(await page.locator('.core-models select').count(),5);assert.equal(await page.locator('[name=verifying]').inputValue(),'');
+ await page.locator('[data-all-model]').click();const personaModel=await page.locator('[name=personality]').inputValue();for(const k of ['router','reasoning','analyzing','verifying'])assert.equal(await page.locator('[name='+k+']').inputValue(),personaModel);
+ await page.locator('#core-settings details').filter({hasText:'PROVIDER UPLINK'}).locator('summary').click();
  await page.locator('[name=credentialProvider]').selectOption('nim');await page.locator('[name=providerKey]').fill('dummy-browser-test-key');await page.locator('[data-save-key]').click();
  await page.waitForFunction(()=>document.querySelector('[name=providerKey]').value===''&&!document.querySelector('[data-save-key]').disabled);
  assert.equal(await page.evaluate(()=>Object.values(localStorage).some(v=>v.includes('dummy-browser-test-key'))),false);
- await page.locator('[name=councilEnabled]').check();assert.equal(await page.locator('[name=councilModels] option:checked').count(),2);await page.locator('#core-settings button[type=submit]').click();assert.deepEqual(errors,[]);console.log('PASS: immediate sends, in-flight follow-ups, stale reply suppression, paced bubbles, mid-delivery reload, interruption, reply context, reminders, menus, no blink, desktop/mobile');
+ await page.locator('[name=councilEnabled]').check();assert.equal(await page.locator('.council-chips .chip.on').count(),2);await page.locator('#core-settings button[type=submit]').click();assert.deepEqual(errors,[]);console.log('PASS: immediate sends, in-flight follow-ups, stale reply suppression, paced bubbles, mid-delivery reload, interruption, reply context, reminders, menus, no blink, per-stage model settings, desktop/mobile');
 }finally{await browser?.close();server.closeAllConnections();server.close();}

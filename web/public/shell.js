@@ -5,6 +5,7 @@ import {mountNotifications} from '/notifications.js';
 import {spokenText,reminderPresentation} from '/spoken-text.js';
 import {createTimeline,mergeMessages} from '/timeline.js';
 import {mountTerminals} from '/terminals.js';
+import {mountBrain} from '/brain.js';
 import {splitReply} from '/message-blocks.js';
 import {bubbleDelay,turnHistory} from '/conversation-flow.js';
 import {scheduledTime} from '/capture.js';
@@ -26,7 +27,9 @@ import {conversationMemory,chatRows} from '/chat-store.js';
 const $=id=>document.getElementById(id),el=(t,x)=>{const n=document.createElement(t);if(x!==undefined)n.textContent=x;return n};
 let booting=true,hardStopping=false,workController=new AbortController(),workEpoch=0;
 let history=[],signedIn=false,busy=false,cfg,first=true,owner="",currentChat=null,chatController=null;
-const terminals=mountTerminals($('terminals'),$('pt'));
+const terminals=mountTerminals($('rag-logs'),$('tt'));
+const brain=mountBrain($('terminals-view'),{terminals});
+window.brain=brain; // manual demo + replay from the console: brain.demo()
 const timeline=createTimeline({api,owner:()=>owner,legacy:chatRows});
 const notifications=mountNotifications({api,owner:()=>owner,container:document.querySelector('.chat-options'),onError:message=>err(message)});
 const core=mountCoreSettings({api,owner:()=>owner,busy:()=>busy,onSaved:refreshPendingSettings,onWelcome:()=>loadWelcome(owner,true),onArchive:()=>syncHistory(true)});
@@ -55,7 +58,7 @@ function webPanel(it,m){
  if(m.web){const d=el('details');d.append(el('summary','Web research'));const content=el('div');md(content,m.web.answer);d.append(content);for(const source of m.web.sources){const a=el('a',source.title);a.href=source.url;a.target='_blank';a.rel='noopener noreferrer';d.append(a,el('br'));}if(m.web.entryPoint){const frame=el('iframe');frame.title='Google Search suggestions';frame.setAttribute('sandbox','allow-popups allow-popups-to-escape-sandbox');frame.srcdoc=m.web.entryPoint;frame.style.cssText='width:100%;height:120px;border:0';d.append(frame)}panel.append(d)}
  if(m.webRequest&&m.webContext){panel.append(el('p',m.webRequest.question),el('small','Public search: '+m.webRequest.query));const yes=el('button','Search the web'),no=el('button','Not now');panel.append(yes,no);no.onclick=async()=>{m.webRequest=null;webPanel(it,m);await persistChat()};yes.onclick=async()=>{if(busy)return;lockChat(true);chatController=new AbortController();yes.disabled=true;try{const styled=await personalityCall({...m.webContext,settings:core.get(),approvedWebQuery:m.webRequest.query},chatController.signal);m.edited=Date.now();m.text=styled.answer;m.blocks=styled.blocks;m.expression=styled.expression;delete m.personality;m.personalityResearch=styled.personalityResearch;m.citationWarning=styled.citationWarning;m.web=styled.web;m.webRequest=null;m.usage=addUsage(m.usage,styled.usage);m.sources=[...(m.sources||[]).filter(s=>!s.id.startsWith('P')),...(styled.sources||[])];it.querySelectorAll('.refs,.personality-toggle,.cite-warn').forEach(n=>n.remove());refs(it,m.sources);showPersonality(it,m);webPanel(it,m);showUsage(it,m.usage);history=conversationMemory(currentChat.messages);await persistChat()}catch(e){err(e.message);yes.disabled=false}finally{chatController=null;lockChat(false)}};}(it.querySelector('.message-menu')||it).append(panel);
 }
-async function personalityCall(body,signal=workController.signal){body={...body,settings:body.settings??core.get()};const r=await fetch('/api/personality',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/x-ndjson'},body:JSON.stringify(body),signal});return readChatStream(r,e=>{if(e.stage==='model-output')err(e.message);if(e.stage==='web-search')terminals.open({id:'web-search',kind:'retrieval',title:'PUBLIC WEB',text:e.query,state:'reading'});if(e.stage==='personality-scan'){setExpression('focused_analysis');}if(e.stage==='quota-wait'){const it=$('msgs').querySelector('[data-pending]');if(it)setStatus(it,e.message);}});}
+async function personalityCall(body,signal=workController.signal){body={...body,settings:body.settings??core.get()};const r=await fetch('/api/personality',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/x-ndjson'},body:JSON.stringify(body),signal});return readChatStream(r,e=>{if(e.stage==='pipeline')brain.ingest(e.pipeline);if(e.stage==='web-search')terminals.open({id:'web-search',kind:'retrieval',title:'PUBLIC WEB',text:e.query,state:'reading',stage:'web'});if(e.stage==='personality-scan'){setExpression('focused_analysis');}if(e.stage==='quota-wait'){const it=$('msgs').querySelector('[data-pending]');if(it)setStatus(it,e.message);}});}
 const workspace=mountWorkspace($("notes"),{api,ask,confirm:confirmAction,model:()=>$("model").value});
 const quick=mountQuick($('quick'),{api,confirm:confirmAction,voice:()=>{const s=core.get();return s?.enabled?s.prompts.personality:null;},move:(path,vault,version)=>workspace.move(path,vault,version),open:async(path,vault)=>{tab(true);await workspace.open(path,vault);}});
 async function api(p,b){const r=await fetch('/api/'+p,{signal:['capture','reminder-overview'].includes(p)?AbortSignal.any([workController.signal,AbortSignal.timeout(90000)]):AbortSignal.timeout(90000),method:b?'POST':'GET',headers:b?{'Content-Type':'application/json'}:{},body:b?JSON.stringify(b):undefined});const d=await r.json().catch(()=>({}));if(r.status===401){signedIn=false;$('login').showModal()}if(!r.ok)throw Object.assign(new Error(d.error||'Request failed.'),{status:r.status});return d}
@@ -120,9 +123,10 @@ function markUsed(src){terminals.finish(src);
 const cool=()=>trail.querySelectorAll('.hot').forEach(n=>n.classList.remove('hot'));
 function lit(v,path){nodes.forEach(n=>n.classList.remove('lit','hot'));const n=nodes.get(key(v,path));if(n){n.classList.add('lit');n.scrollIntoView({block:'nearest',behavior:'smooth'})}}
 function onProgress(it,ev){
+ if(ev.stage==='pipeline'){brain.ingest(ev.pipeline);return;}
  if(ev.stage==='evidence'){terminals.read(ev.notes||[]);return;}
- if(ev.stage==='results')for(const n of ev.notes||[])terminals.open({id:'note:'+n.vault+':'+n.path,kind:'retrieval',title:n.path,text:n.excerpt||'Matched passage · reading…',state:'reading'});
- if(ev.stage==='searching')terminals.open({id:'retrieval',kind:'retrieval',title:'RETRIEVAL',text:'Searching '+ev.vault+'\n'+(ev.sent||''),state:'reading'});
+ if(ev.stage==='results')for(const n of ev.notes||[])terminals.open({id:'note:'+n.vault+':'+n.path,kind:'retrieval',title:n.path,text:n.excerpt||'Matched passage · reading…',state:'reading',stage:'evidence'});
+ if(ev.stage==='searching')terminals.open({id:'retrieval',kind:'retrieval',title:'RETRIEVAL',text:'Searching '+ev.vault+'\n'+(ev.sent||''),state:'reading',stage:'search'});
  if(ev.stage==='quota-wait'){setStatus(it,ev.message);return;}if(ev.stage==='usage'){showUsage(it,ev.usage);return;}
  if(ev.stage==='search'){cool()}
  else if(ev.stage==='scope')scope(ev);
@@ -143,6 +147,7 @@ function messageTools(it,m){
  const menu=el('details'),toggle=el('summary','•••');menu.className='message-menu';toggle.setAttribute('aria-label','Message options');
  const date=el('time',new Date(m.sentAt||m.started).toLocaleString(undefined,{month:'long',day:'numeric',hour:'numeric',minute:'2-digit'}));
  menu.append(toggle,date);
+ if(m.pipeline?.length){const rb=el('button','Replay in Brain');rb.type='button';rb.className='brain-replay';rb.setAttribute('aria-label','Replay this turn in the Brain view');rb.onclick=()=>{tab('terminals');brain.replay(m.pipeline);};menu.append(rb);}
  if(m.role==='model'){const count=el('span',m.usage||it.dataset.tokens?String(m.usage?.totalTokenCount||it.dataset.tokens):'No token usage recorded for this bubble');count.className='message-tokens';const reply=el('button','↩');reply.type='button';reply.className='message-reply';reply.setAttribute('aria-label','Reply');reply.title='Reply';reply.onclick=()=>{replyTarget={id:m.id,text:(it.querySelector('.md')?.textContent||m.text).slice(0,1000)};const preview=$('reply-preview');preview.hidden=false;preview.firstChild.textContent=replyTarget.text;menu.open=false;$('q').focus();};menu.append(count);it.append(reply);}
  menu.addEventListener('toggle',()=>{if(menu.open){for(const other of $('msgs').querySelectorAll('.message-menu[open]'))if(other!==menu)other.open=false;const bounds=$('scroll').getBoundingClientRect(),parent=it.getBoundingClientRect();menu.style.maxHeight=Math.max(80,bounds.height-16)+'px';menu.style.top='0px';const height=menu.getBoundingClientRect().height;menu.style.top=Math.max(bounds.top+8-parent.top,Math.min(0,bounds.bottom-8-parent.top-height))+'px';}},true);
  menu.append(...metadata);it.append(menu);
@@ -284,6 +289,7 @@ async function runPending(){
  if(!currentChat?.pending)return;if(workController.signal.aborted)workController=new AbortController();delete currentChat.pending.retryAt;chatController=new AbortController();lockChat(true);err('');
  const pending=currentChat.pending,it=$('msgs').querySelector('[data-pending]')||msg('model','');it.dataset.pending='true';clearScan();setStatus(it,pending.continuation?'Continuing research…':'Thinking…');first=true;
  const body=pending.body,signal=AbortSignal.any([chatController.signal,workController.signal]);
+ brain.begin(body.message);
  if(JSON.stringify(body.settings)!==JSON.stringify(core.get())){body.settings=core.get();delete pending.continuation;delete pending.decision;delete pending.report;}
  showUsage(it,pending.usage||{totalTokenCount:estimateQuestion(body.message,body.history,body.files),estimated:true});
  try{
@@ -324,13 +330,14 @@ async function runPending(){
    const saved={id:crypto.randomUUID(),turn:turn.id,started:Date.now(),sentAt:Date.now(),edited:Date.now(),role:'model',
      text:reply.answer,blocks:reply.blocks,note:reply.note,reminder:reply.reminder,expression:reply.expression,sources:[...extraSources,...(reply.sources||[])],personalityResearch:reply.personalityResearch,
      citationWarning:reply.citationWarning,usage,followupCache,web:reply.web,webRequest:reply.webRequest,
+     pipeline:[...(first.pipeline||[]),...(pending.report?.pipeline||[]),...(reply.pipeline||[])],
      ...(reply.webRequest?{webContext}:{})};
-   delete it.dataset.pending;currentChat.pending=null;
+   delete it.dataset.pending;currentChat.pending=null;brain.end({final:true});
    // A casual answer composed before a follow-up is already stale. The next
    // turn sees the original user messages and all new messages in order.
    if(first.route==='reply'&&currentChat.inputQueue?.length){it.remove();await persistChat();return;}
    it.remove();queueReply(saved,first.route==='reply');cool();await persistChat();
- }catch(x){if(pending.cancelled||signal.aborted){delete pending.retryAt;if(!pending.cancelled)err('Paused by you. Use Resume reply to continue.');return;}const transient=![400,413].includes(x.status)&&x.name!=='AbortError'&&([429,502,503,504].includes(x.status)||/quota|limit|timed out|connection|fetch/i.test(x.message));pending.retryCount=(pending.retryCount||0)+1;const retrying=transient&&pending.retryCount<=5;if(retrying)pending.retryAt=Date.now()+Math.min(180000,15000*2**(pending.retryCount-1));else delete pending.retryAt;
+ }catch(x){brain.fail();if(pending.cancelled||signal.aborted){delete pending.retryAt;if(!pending.cancelled)err('Paused by you. Use Resume reply to continue.');return;}const transient=![400,413].includes(x.status)&&x.name!=='AbortError'&&([429,502,503,504].includes(x.status)||/quota|limit|timed out|connection|fetch/i.test(x.message));pending.retryCount=(pending.retryCount||0)+1;const retrying=transient&&pending.retryCount<=5;if(retrying)pending.retryAt=Date.now()+Math.min(180000,15000*2**(pending.retryCount-1));else delete pending.retryAt;
  const text=requestErrorText(x.status,retrying);it.remove();err('');
  let failure=currentChat.messages.find(m=>m.id===pending.failureId);
  if(!failure){failure={id:crypto.randomUUID(),turn:pending.turnId,role:'model',event:'request.error',started:Date.now(),text};pending.failureId=failure.id;currentChat.messages.push(failure);const node=msg('model',text);messageTools(node,failure);}
@@ -424,8 +431,8 @@ function ask(label,val=''){return new Promise(ok=>{const d=$('ask');let v=null;$
 function confirmAction(label,okText='Confirm'){return new Promise(ok=>{const d=$('ask');let v=false;$('al').textContent=label;$('av').hidden=true;$('ao').textContent=okText;
  d.onclose=()=>{$('av').hidden=false;$('ao').textContent='OK';ok(v)};$('af').onsubmit=e=>{e.preventDefault();v=true;d.close()};$('ac').onclick=()=>d.close();d.showModal()})}
 // ---- app views; note drafts are kept independently of chat navigation.
-function tab(n){stopFlight();const q=n==='quick',notes=n===true,other=q||notes;if(other)setExpression(q?'neutral_attention':'focused_analysis');else setExpression(currentChat?.messages.findLast(m=>m.role==='model')?.expression);$('ht').hidden=other;$('chat').hidden=other;$('notes').hidden=!notes;$('quick').hidden=!q;$('app').classList.toggle('nm',other);$('tc').classList.toggle('on',!other);$('tn').classList.toggle('on',notes);$('tq').classList.toggle('on',q);window.history.replaceState(null,'',location.pathname+location.search+(other?(q?'#quick':'#notes'):''));if(notes&&signedIn)workspace.refresh().catch(e=>err(e.message));if(q&&signedIn)quick.refresh();}
-$('tc').onclick=()=>tab(false);$('tn').onclick=()=>tab(true);$('tq').onclick=()=>tab('quick');
+function tab(n){stopFlight();const q=n==='quick',notes=n===true,term=n==='terminals',other=q||notes||term;if(other)setExpression(term||notes?'focused_analysis':'neutral_attention');else setExpression(currentChat?.messages.findLast(m=>m.role==='model')?.expression);$('ht').hidden=other;$('chat').hidden=other;$('notes').hidden=!notes;$('quick').hidden=!q;$('terminals-view').hidden=!term;$('app').classList.toggle('nm',other);$('tc').classList.toggle('on',!other);$('tn').classList.toggle('on',notes);$('tq').classList.toggle('on',q);$('tt').classList.toggle('on',term);window.history.replaceState(null,'',location.pathname+location.search+(other?(q?'#quick':term?'#brain':'#notes'):''));if(notes&&signedIn)workspace.refresh().catch(e=>err(e.message));if(q&&signedIn)quick.refresh();brain.setVisible(term);}
+$('tc').onclick=()=>tab(false);$('tn').onclick=()=>tab(true);$('tq').onclick=()=>tab('quick');$('tt').onclick=()=>tab('terminals');
 try{$('concise').checked=localStorage.getItem('aria.mirage')!=='mir';}catch{$('concise').checked=true;}
 $('overclock').setAttribute('aria-pressed',String(!$('concise').checked));
 $('overclock').onclick=()=>{$('concise').checked=!$('concise').checked;$('concise').onchange();};
@@ -503,7 +510,7 @@ async function initialize(){
   cfg=await api('status');$('model').value=cfg.models[0].id;buildModels();upd();
   if(!cfg.configured||!cfg.geminiReady){$('setup').hidden=false;$('setup').textContent='Preview mode: finish Supabase and Gemini setup to enable answers.';}
   if(cfg.configured){
-   try{const session=await api('session');await acct(session.email);if(!booting&&openNotes)tab(true);}
+   try{const session=await api('session');await acct(session.email);if(!booting&&openNotes)tab(true);if(!booting&&location.hash==='#brain')tab('terminals');}
    catch(e){if(e.status!==401)throw e;booting=false;$('capri-loading').hidden=true;}
   }else{booting=false;$('capri-loading').hidden=true;}
  }catch(e){bootFailure(e,initialize);}

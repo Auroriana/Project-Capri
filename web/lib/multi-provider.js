@@ -9,6 +9,15 @@ externalModels.push(...['glm-5.3-flash','glm-5.3','glm-5.3-air'].map(id=>({id:'z
 // everyday free chains no longer depend on it: see api/index.js (Nemotron
 // Ultra text chain) and the free multimodal legs below.
 externalModels.push({id:'openrouter:z-ai/glm-5.3-flash:free',name:'OpenRouter / GLM 5.3 Flash (free)',provider:'openrouter'});
+// Free Nemotron mirrors verified live on OpenRouter (Nov 2026). They are the
+// catch-all legs when build.nvidia.com rate-limits or cold-starts: the Ultra
+// :free endpoint serves the exact same 550B text model, Lightning is a fast
+// spare, and Super VL :free is a second vision hop before Nano Omni.
+externalModels.push(
+ {id:'openrouter:nvidia/nemotron-3-ultra-550b-a55b:free',name:'OpenRouter / Nemotron 3 Ultra 550B (free)',provider:'openrouter'},
+ {id:'openrouter:nvidia/nemotron-3.5-lightning:free',name:'OpenRouter / Nemotron 3.5 Lightning (free)',provider:'openrouter'},
+ {id:'openrouter:nvidia/nemotron-3.5-super-vl:free',name:'OpenRouter / Nemotron 3.5 Super VL (free vision)',provider:'openrouter',vision:true}
+);
 externalModels.push(...['deepseek-ai/deepseek-v4.1-flash','z-ai/glm-5.3-flash'].map(model=>({id:'nim:'+model,name:'NVIDIA NIM / '+model,provider:'nim'})));
 externalModels.push({id:'nim:nvidia/nemotron-3-super-120b-a12b',name:'NVIDIA / Nemotron 3 Super 120B A12B',provider:'nim'});
 externalModels.push({id:'nim:nvidia/nemotron-3-ultra-550b-a55b',name:'NVIDIA / Nemotron 3 Ultra 550B A55B',provider:'nim'});

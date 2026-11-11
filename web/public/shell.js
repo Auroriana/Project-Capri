@@ -296,7 +296,7 @@ async function runPending(){
    if(!pending.decision){
      // Older in-flight checkpoints already have a reasoning route.
      pending.decision=pending.continuation?{route:body.mode==='vault'?'vault':'reasoning'}:
-       await personalityCall({action:'turn',message:body.message,mode:body.mode,history:body.history,
+       await personalityCall({action:'turn',message:body.message,mode:body.mode,depth:body.depth,history:body.history,
          settings:body.settings,pendingReplies:currentChat.delayed?.map(x=>x.message.text),hasAttachments:!!body.files?.length},signal);
      await persistChat();
    }
@@ -308,7 +308,7 @@ async function runPending(){
      setExpression('focused_analysis');
      if(!pending.report){
        for(;;){
-         const result=await chat({...body,mode:first.route==='vault'?'vault':'general',researchTool:true,resumable:true,
+         const result=await chat({...body,tier:first.tier,mode:first.route==='vault'?'vault':'general',researchTool:true,resumable:true,
            ...(pending.continuation?{continuation:pending.continuation}:{})},ev=>{
            if(ev.stage==='usage'){pending.usage=addUsage(first.usage,ev.usage);showUsage(it,pending.usage);}else onProgress(it,ev);
          });
@@ -319,7 +319,7 @@ async function runPending(){
      }
      const report=pending.report;
      setStatus(it,'Preparing Capri’s response…');
-     webContext={...personalityHandoff(body,report),sprite:true};
+     webContext={...personalityHandoff(body,report),tier:first.tier,sprite:true};
      reply=await personalityCall(webContext,signal);
      extraSources=(report.sources||[]).filter(s=>s.cited!==false);markUsed(report.sources||[]);
      followupCache=report.followupCache??null;usage=addUsage(addUsage(first.usage,report.usage),reply.usage);
@@ -431,38 +431,14 @@ function ask(label,val=''){return new Promise(ok=>{const d=$('ask');let v=null;$
 function confirmAction(label,okText='Confirm'){return new Promise(ok=>{const d=$('ask');let v=false;$('al').textContent=label;$('av').hidden=true;$('ao').textContent=okText;
  d.onclose=()=>{$('av').hidden=false;$('ao').textContent='OK';ok(v)};$('af').onsubmit=e=>{e.preventDefault();v=true;d.close()};$('ac').onclick=()=>d.close();d.showModal()})}
 // ---- app views; note drafts are kept independently of chat navigation.
-// ---- BRAIN: always visible on the right of the screen (desktop) ----
-// The neural-core panel keeps its own column beside chat/notes/quick; the
-// BRAIN header button toggles it. On mobile it becomes a slide-in overlay
-// that starts closed so it never covers the conversation.
-const brainMQ=matchMedia('(max-width:860px)');
-let brainDesktop=true,brainMobile=false;
-try{brainDesktop=localStorage.getItem('aria.brain')!=='off';}catch{}
-const brainVisible=()=>brainMQ.matches?brainMobile:brainDesktop;
-function applyBrain(){
- const on=brainVisible();
- $('app').classList.toggle('brain-off',!brainMQ.matches&&!on);
- $('app').classList.toggle('brain-open',brainMQ.matches&&on);
- $('tt').classList.toggle('on',on);
- $('tt').setAttribute('aria-pressed',String(on));
- brain.setVisible(on);
-}
-function setBrain(on){
- if(brainMQ.matches)brainMobile=on;
- else{brainDesktop=on;try{localStorage.setItem('aria.brain',on?'on':'off');}catch{}}
- applyBrain();
-}
-brainMQ.addEventListener?.('change',applyBrain);
-function tab(n){stopFlight();
- if(n==='terminals'){setBrain(true);return;}
- const q=n==='quick',notes=n===true,other=q||notes;
- if(other)setExpression('focused_analysis');else setExpression(currentChat?.messages.findLast(m=>m.role==='model')?.expression);
- $('ht').hidden=other;$('chat').hidden=other;$('notes').hidden=!notes;$('quick').hidden=!q;$('app').classList.toggle('nm',other);$('tc').classList.toggle('on',!other);$('tn').classList.toggle('on',notes);$('tq').classList.toggle('on',q);
- window.history.replaceState(null,'',location.pathname+location.search+(other?(q?'#quick':'#notes'):''));
- if(notes&&signedIn)workspace.refresh().catch(e=>err(e.message));if(q&&signedIn)quick.refresh();
-}
-$('tc').onclick=()=>tab(false);$('tn').onclick=()=>tab(true);$('tq').onclick=()=>tab('quick');$('tt').onclick=()=>setBrain(!brainVisible());
-applyBrain();
+// BRAIN dock: visible on the right of every tab. Open by default on wide screens; on phones it is a
+// bottom sheet the BRAIN button opens. The choice is remembered per device.
+let brainOpen=true;
+const narrow=matchMedia('(max-width:900px)');
+function dock(open,remember=true){brainOpen=!!open;$('terminals-view').hidden=!brainOpen;$('app').classList.toggle('brain-open',brainOpen);$('tt').classList.toggle('on',brainOpen);$('tt').setAttribute('aria-pressed',String(brainOpen));brain.setVisible(brainOpen);if(remember){try{localStorage.setItem('capri.brain',brainOpen?'open':'closed');}catch{}}}
+(()=>{let saved;try{saved=localStorage.getItem('capri.brain');}catch{}dock(saved?saved==='open':!narrow.matches,false);})();
+function tab(n){if(n==='terminals'){dock(true);return;}stopFlight();const q=n==='quick',notes=n===true,other=q||notes;if(other)setExpression(notes?'focused_analysis':'neutral_attention');else setExpression(currentChat?.messages.findLast(m=>m.role==='model')?.expression);$('ht').hidden=other;$('chat').hidden=other;$('notes').hidden=!notes;$('quick').hidden=!q;$('app').classList.toggle('nm',other);$('tc').classList.toggle('on',!other);$('tn').classList.toggle('on',notes);$('tq').classList.toggle('on',q);window.history.replaceState(null,'',location.pathname+location.search+(other?(q?'#quick':'#notes'):''));if(notes&&signedIn)workspace.refresh().catch(e=>err(e.message));if(q&&signedIn)quick.refresh();}
+$('tc').onclick=()=>tab(false);$('tn').onclick=()=>tab(true);$('tq').onclick=()=>tab('quick');$('tt').onclick=()=>dock(!brainOpen);$('dock-close').onclick=()=>dock(false);
 try{$('concise').checked=localStorage.getItem('aria.mirage')!=='mir';}catch{$('concise').checked=true;}
 $('overclock').setAttribute('aria-pressed',String(!$('concise').checked));
 $('overclock').onclick=()=>{$('concise').checked=!$('concise').checked;$('concise').onchange();};
@@ -482,7 +458,7 @@ async function handleVoiceStop(){
   if(!data.length){err('');return;}
   const r=await api('transcribe',{audio:{mime,data}});
   const q=$('q');q.value=(q.value?q.value+' ':'')+r.text.trim();resizeComposer();q.focus();err('');
- }catch(e){err(requestErrorText(e?.status,false,e?.message||'Transcription failed.'));}
+ }catch(e){err(requestErrorText(e,'Transcription failed.'));}
 }
 $('voice').onclick=async()=>{
  if(recording){await handleVoiceStop();return;}
@@ -500,7 +476,7 @@ async function pushCapture(promise,label){
   const blob=await promise,data=await b64(blob);
   if(files.reduce((n,x)=>n+x.data.length,0)+data.length>3.9e6){err('Attachments are too large (about 2.8 MB total).');return;}
   files.push({mime:'image/jpeg',data,name:label});renderAtt();err('');
- }catch(e){err(e?.name==='NotAllowedError'?'Capture was denied or cancelled.':requestErrorText(e?.status,false,e?.message||'Capture failed.'));}
+ }catch(e){err(e?.name==='NotAllowedError'?'Capture was denied or cancelled.':requestErrorText(e,'Capture failed.'));}
 }
 if(captureSupported()){
  $('camera').title='Camera snapshot';$('camera').setAttribute('aria-label','Camera snapshot');
@@ -540,7 +516,7 @@ async function initialize(){
   cfg=await api('status');$('model').value=cfg.models[0].id;buildModels();upd();
   if(!cfg.configured||!cfg.geminiReady){$('setup').hidden=false;$('setup').textContent='Preview mode: finish Supabase and Gemini setup to enable answers.';}
   if(cfg.configured){
-   try{const session=await api('session');await acct(session.email);if(!booting&&openNotes)tab(true);if(!booting&&location.hash==='#brain')tab('terminals');}
+   try{const session=await api('session');await acct(session.email);if(!booting&&openNotes)tab(true);if(!booting&&location.hash==='#brain')dock(true);}
    catch(e){if(e.status!==401)throw e;booting=false;$('capri-loading').hidden=true;}
   }else{booting=false;$('capri-loading').hidden=true;}
  }catch(e){bootFailure(e,initialize);}

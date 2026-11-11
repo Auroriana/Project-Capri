@@ -60,9 +60,9 @@ async function providerError(response,provider,model,key){
  const raw=detail?.error?.message||detail?.detail||detail?.message||detail?.title||'';
  const safe=String(raw).replaceAll(key,'[redacted]').replace(/Bearer\s+\S+|nvapi-[\w-]+|sk-[\w-]+/gi,'[redacted]').slice(0,400);
  const retryAfter=response.headers.get('retry-after');
- return Object.assign(Error(provider+' / '+model+' failed (HTTP '+response.status+').'+(safe?' '+safe:'')+(retryAfter?' Retry after '+retryAfter+'.':'')),{status:response.status===413?413:response.status===429?429:response.status>=500?503:400,providerStatus:response.status,retryAfter});
+ return Object.assign(Error(provider+' / '+model+' failed (HTTP '+response.status+').'+(safe?' '+safe:'')+(retryAfter?' Retry after '+retryAfter+'.':'')),{status:response.status===413?413:response.status===429?429:response.status>=500?503:502,providerStatus:response.status,providerFault:true,retryAfter});
 }
-export async function externalGenerate(id,request,{signal,onToken=()=>{},onAnswerStarted=()=>{}}={},fetcher=fetch){
+export async function externalGenerate(id,request,{signal,onToken=()=>{},onAnswerStarted=()=>{},firstTokenMs:firstTokenOverride}={},fetcher=fetch){
  if(!ready(id))throw Object.assign(Error('Provider is not enabled under the current key/free-only policy: '+providerOf(id)+'.'),{status:503});
  if(id.startsWith('claude-'))return claude(id,request,{signal,apiKey:providerKey('anthropic')},fetcher);
  const provider=providerOf(id),p=providers[provider],model=id.slice(provider.length+1),key=providerKey(provider);
@@ -89,9 +89,9 @@ export async function externalGenerate(id,request,{signal,onToken=()=>{},onAnswe
    throw Object.assign(new Error('PDF attachments are supported on Gemini models only.'),{status:400});
   })];
  };
- const baseBody={model,messages:[{role:'system',content:system},...request.contents.map(c=>({role:c.role==='model'?'assistant':'user',content:toParts(c.parts,model)}))],max_tokens:request.generationConfig?.maxOutputTokens||4096};
+ const baseBody={model,messages:[...(system.trim()?[{role:'system',content:system}]:[]),...request.contents.map(c=>({role:c.role==='model'?'assistant':'user',content:toParts(c.parts,model)}))],max_tokens:request.generationConfig?.maxOutputTokens||4096};
  const positive=(value,fallback)=>{const n=Number(value);return Number.isFinite(n)&&n>0?n:fallback;};
- const firstTokenMs=positive(process.env.EXTERNAL_FIRST_TOKEN_MS,45000),idleMs=positive(process.env.EXTERNAL_IDLE_MS,45000),totalMs=positive(process.env.EXTERNAL_TOTAL_MS,120000);
+ const firstTokenMs=positive(firstTokenOverride,positive(process.env.EXTERNAL_FIRST_TOKEN_MS,45000)),idleMs=positive(process.env.EXTERNAL_IDLE_MS,45000),totalMs=positive(process.env.EXTERNAL_TOTAL_MS,120000);
  const wantStream=process.env.EXTERNAL_STREAM!=='false';
  const controller=new AbortController(),combined=signal?AbortSignal.any([signal,controller.signal]):controller.signal;
  let idleTimer;const totalTimer=setTimeout(()=>controller.abort('total'),totalMs);
@@ -127,11 +127,10 @@ export async function externalGenerate(id,request,{signal,onToken=()=>{},onAnswe
   resetIdle();
   const url=p.base+'/chat/completions',headers={'Content-Type':'application/json',Authorization:'Bearer '+key};
   let response=await fetcher(url,{method:'POST',headers,body:JSON.stringify(wantStream?{...baseBody,stream:true,stream_options:{include_usage:true}}:baseBody),signal:combined});
-  if(!response.ok&&response.status===400&&wantStream){
-   let detail;try{detail=await response.json();}catch{}
-   if(/stream/i.test(String(detail?.error?.message||detail?.detail||detail?.message||'')))
-    response=await fetcher(url,{method:'POST',headers,body:JSON.stringify(baseBody),signal:combined});
-  }
+  // Some hosted endpoints reject stream_options (or streaming itself) with a bare 400/422.
+  // One plain, non-streaming retry costs nothing and avoids a spurious provider failure.
+  if(!response.ok&&[400,422].includes(response.status)&&wantStream)
+   response=await fetcher(url,{method:'POST',headers,body:JSON.stringify(baseBody),signal:combined});
   if(!response.ok)throw await providerError(response,provider,model,key);
   if(!(response.headers.get('content-type')||'').includes('text/event-stream')){
    // Provider answered with a complete JSON body (ignored or rejected streaming).

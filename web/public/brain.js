@@ -1,4 +1,4 @@
-// BRAIN — pipeline visualizer for the permanent right-side neural panel.
+// BRAIN — pipeline visualizer for the permanent Terminals tab.
 // Ingests the structured event log emitted by /api/chat and /api/personality
 // (NDJSON progress events with stage:'pipeline'), draws the neural map, and
 // replays saved logs without ever re-calling a model.
@@ -7,8 +7,7 @@
 // .model-node[data-state], .bolt[data-dir], .hud[data-state],
 // .meter[data-stage], #brain-glitch[data-active]. The core and every node sit
 // inside a plain positioning <g transform=…> so CSS transform animations on
-// #brain-core / .model-node never fight the layout transform. The core is a
-// pure-SVG pulsing soma (shell + rings + gradient); no image is involved.
+// #brain-core / .model-node never fight the layout transform.
 
 export const STAGE_ORDER=['routing','scope','search','evidence','planning','answering','verifying','council','personality','web'];
 export const STAGE_LABELS={routing:'ROUTE',scope:'SCOPE',search:'SEARCH',evidence:'EVIDENCE',planning:'PLAN',answering:'ANSWER',verifying:'VERIFY',council:'COUNCIL',personality:'PERSONA',web:'WEB',merge:'MERGE'};
@@ -26,9 +25,10 @@ export const redact=raw=>String(raw??'')
   .replace(/\b(?:\d[ -]?){12,18}\d\b/g,'‹card›')
   .replace(/\b\d{6,}\b/g,'‹#›')
   .replace(/\b[A-Za-z0-9_-]{20,}\b/g,'‹key›');
-// Fixed ring slots (viewBox 1000x470, core at 500,235): no two nodes ever overlap.
+// Fixed ring slots (viewBox 600x560, core at 300,280): no two nodes ever overlap.
+export const BRAIN_VIEW={w:600,h:560,cx:300,cy:280,R:200};
 export const SLOT_ANGLE=[-150,-90,-30,30,90,150].map(a=>a*Math.PI/180);
-export function slotPoint(i){const R=172;return [500+Math.cos(SLOT_ANGLE[i%6])*R,235+Math.sin(SLOT_ANGLE[i%6])*R];}
+export function slotPoint(i){const {cx,cy,R}=BRAIN_VIEW;return [cx+Math.cos(SLOT_ANGLE[i%6])*R,cy+Math.sin(SLOT_ANGLE[i%6])*R];}
 // Bolt polyline with vertical jitter along the perpendicular; regenerated ~30fps.
 export function boltPoints(x1,y1,x2,y2,jitter=7){
   const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1,px=-dy/len,py=dx/len,pts=[[x1,y1]];
@@ -60,14 +60,17 @@ export function mountBrain(root,{terminals}={}){
   const nodeSpeeches=$('node-speeches'),drawer=root.querySelector('#detail-drawer'),drawerText=drawer.querySelector('.drawer-text'),drawerLabel=drawer.querySelector('header b'),drawerHint=drawer.querySelector('.drawer-hint');
   const metersBox=$('token-meters'),tt=document.getElementById('tt');
   const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const corePoint=[500,235];
+  const corePoint=[BRAIN_VIEW.cx,BRAIN_VIEW.cy];
   let viewVisible=!root.hidden,paused=false,replaying=false,replayLog=null,replayIdx=0,replayTimer=null,speed=1;
   let turn=0,turnOpen=false,seq=0;
   const log=[],records=[],waves=new Map(),nodes=new Map(),slots=new Map(),meters=new Map(),bolts=[];
   let boltsRaf=0,lastBoltFrame=0,glitchRaf=0,detailRevealed=false,detailRaw='';
 
   const data=(el,k,v)=>{if(v===undefined)el.removeAttribute(k);else el.setAttribute(k,v);};
-  const phase=p=>data(brain,'data-phase',p);
+  const label=document.getElementById('core-label'),tierTag=document.getElementById('dock-tier');
+  const PHASE_TEXT={idle:'CORE // STANDBY',working:'CORE // ROUTING',merging:'CORE // MERGING',done:'CAPRI // ONLINE'};
+  const phase=p=>{data(brain,'data-phase',p);if(label)label.textContent=PHASE_TEXT[p]||PHASE_TEXT.idle;};
+  const setTier=t=>{if(!tierTag)return;tierTag.dataset.tier=t||'idle';tierTag.textContent=t?String(t).toUpperCase()+' TIER':'STANDBY';};
   const active=()=>viewVisible&&!document.hidden&&!(replaying&&paused);
   const trim6=pre=>{const lines=pre.textContent.split('\n');if(lines.length>HTML_LINES)pre.textContent=lines.slice(-HTML_LINES).join('\n');};
 
@@ -123,13 +126,13 @@ export function mountBrain(root,{terminals}={}){
   // ---------- dendrites + nodes ----------
   function dendritePath(slot){
     const [nx,ny]=slotPoint(slot),dx=nx-corePoint[0],dy=ny-corePoint[1],len=Math.hypot(dx,dy)||1;
-    const sx=corePoint[0]+dx/len*88,sy=corePoint[1]+dy/len*88,ex=nx-dx/len*46,ey=ny-dy/len*46;
+    const sx=corePoint[0]+dx/len*82,sy=corePoint[1]+dy/len*82,ex=nx-dx/len*38,ey=ny-dy/len*38;
     const mx=(sx+ex)/2-dy/len*26,my=(sy+ey)/2+dx/len*26;
     const bx=sx+(ex-sx)*0.55,by=sy+(ey-sy)*0.55,tx=bx-dy/len*34,ty=by+dx/len*34;
     return {main:`M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`,
       twig:`M ${bx.toFixed(1)} ${by.toFixed(1)} q ${(tx-bx).toFixed(1)} ${(ty-by).toFixed(1)} ${(tx-bx+18).toFixed(1)} ${(ty-by+10).toFixed(1)}`,ex,ey};
   }
-  function spawnNode(agent,model){
+  function spawnNode(agent,model,tier){
     const key=agent+'|'+model;
     if(nodes.has(key))return nodes.get(key);
     let slot=slots.size<6?[...Array(6).keys()].find(i=>!slots.has(i)):Math.min(...[...slots.entries()].sort((a,b)=>a[1].ts-b[1].ts).map(([s])=>s));
@@ -137,13 +140,10 @@ export function mountBrain(root,{terminals}={}){
     const old=slots.get(slot);if(old)retireNode(old.node,true);
     const g=svgEl('g',{transform:`translate(${slotPoint(slot)[0].toFixed(1)},${slotPoint(slot)[1].toFixed(1)})`});
     const inner=svgEl('g',{class:'model-node','data-slot':slot,'data-state':'spawning',tabindex:'0',role:'button','aria-label':(AGENT_LABELS[agent]||agent)+' node'});
-    const box=svgEl('rect',{class:'node-box',x:-86,y:-30,width:172,height:60,rx:2});
+    const box=svgEl('rect',{class:'node-box',x:-66,y:-22,width:132,height:44,rx:2});
     const name=svgEl('text',{class:'node-name',x:0,y:-4,'text-anchor':'middle'});
-    const subText=modelShort(model);
-    // Long model ids are squeezed into the box (spacingAndGlyphs) instead of
-    // clipping at the node edge; short names keep their natural spacing.
-    const sub=svgEl('text',{class:'node-model',x:0,y:18,'text-anchor':'middle',...(subText.length>18?{textLength:158,lengthAdjust:'spacingAndGlyphs'}:{})});
-    name.textContent=AGENT_LABELS[agent]||agent.toUpperCase();sub.textContent=subText;
+    const sub=svgEl('text',{class:'node-model',x:0,y:13,'text-anchor':'middle'});
+    name.textContent=AGENT_LABELS[agent]||agent.toUpperCase();{const full=modelShort(model);sub.textContent=full.length>21?full.slice(0,20)+'…':full;const t=svgEl('title');t.textContent=full;inner.append(t);}if(tier)inner.dataset.tier=tier;
     inner.append(box,name,sub);g.append(inner);layer.nodes.append(g);
     const den=svgEl('g',{class:'dendrite','data-slot':slot,'data-state':'growing'});
     const d=dendritePath(slot),main=svgEl('path',{class:'dendrite-main',d:d.main,pathLength:1200}),twig=svgEl('path',{class:'dendrite-twig',d:d.twig,pathLength:1200});
@@ -267,6 +267,7 @@ export function mountBrain(root,{terminals}={}){
     const stage=STAGE_LABELS[ev.stage]?ev.stage:'answering';
     phase('working');
     if(ev.event_type==='merge')phase('merging');
+    if(ev.tier&&ev.agent==='core')setTier(ev.tier);
     touchMeter(ev);highlightLog(stage);
     const wave=waves.get(ev.request_id)||{merged:false};waves.set(ev.request_id,wave);
     if(ev.agent==='core'||!ev.agent||ev.agent==='retrieval'){
@@ -274,7 +275,7 @@ export function mountBrain(root,{terminals}={}){
       if(ev.event_type==='decision'&&ev.text)wave.decided=true;
       return;
     }
-    const entry=spawnNode(ev.agent,ev.model||'');
+    const entry=spawnNode(ev.agent,ev.model||'',ev.tier);
     data(entry.hud,'data-state',ev.event_type==='output'||ev.event_type==='merge'?'done':'writing');
     entry.hud.querySelector('.hud-state').textContent=ev.event_type==='output'||ev.event_type==='merge'?'COMPLETE':'STREAMING';
     if(ev.text){
@@ -290,7 +291,7 @@ export function mountBrain(root,{terminals}={}){
     ev.seq=++seq;log.push(ev);apply(ev,true);
   }
 
-  // ---------- completion sequence (Blackwall glitch → triple pulse → shockwave) ----------
+  // ---------- completion sequence (Blackwall glitch → pulses → photo) ----------
   function complete(){
     phase('merging');
     const finish=()=>{phase('done');retractNodes();};
@@ -303,11 +304,11 @@ export function mountBrain(root,{terminals}={}){
     },420);
   }
   function pulse(kind){
-    const c=svgEl('circle',{class:'core-pulse '+kind,r:64,cx:corePoint[0],cy:corePoint[1]});
+    const c=svgEl('circle',{class:'core-pulse '+kind,r:70,cx:corePoint[0],cy:corePoint[1]});
     layer.pulses.append(c);setTimeout(()=>c.remove(),1300);
   }
   function runGlitch(ms){
-    if(!glitch.getContext)return finish();
+    if(!glitch.getContext)return;
     const ctx=glitch.getContext('2d');
     const dpr=Math.min(2,devicePixelRatio||1);
     const size=()=>{const r=brain.getBoundingClientRect();glitch.width=r.width*dpr;glitch.height=r.height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);return r;};
@@ -342,7 +343,7 @@ export function mountBrain(root,{terminals}={}){
   function begin(label){
     turn++;turnOpen=true;
     if(replaying)stopReplay();
-    clearStage();log.length=0;
+    clearStage();log.length=0;setTier(null);
     phase('working');if(tt)tt.dataset.busy='true';
     speech.hidden=false;speech.querySelector('pre').textContent='';delete speech.querySelector('pre').dataset.buf;
     hudSet(speech,undefined,{state:'writing'});
@@ -364,6 +365,7 @@ export function mountBrain(root,{terminals}={}){
     if(message)coreSay('✕ '+message,'done');
   }
   function clearStage(){
+    setTier(null);
     for(const entry of [...nodes.values()])retireNode(entry,true);
     layer.bolts.replaceChildren();layer.sparks.replaceChildren();layer.pulses.replaceChildren();
     for(const b of bolts)b.g.remove();bolts.length=0;
@@ -406,6 +408,19 @@ export function mountBrain(root,{terminals}={}){
     else for(let i=replayIdx;i<target;i++)apply(replayLog[i],false);
     replayIdx=target;
   }
+
+  // ---------- ambient neural texture (static, seeded: never shifts layout) ----------
+  (function ambient(){
+    const g=$('brain-ambient');if(!g)return;let seed=7;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+    const pts=Array.from({length:22},(_,i)=>{const a=rnd()*Math.PI*2,r=120+rnd()*190;return [300+Math.cos(a)*r*1.0,280+Math.sin(a)*r*0.86,i];}).filter(([x,y])=>x>14&&x<586&&y>14&&y<546);
+    for(const [x,y,i] of pts){
+      const near=pts.filter(q=>q[2]!==i).sort((a,b)=>Math.hypot(a[0]-x,a[1]-y)-Math.hypot(b[0]-x,b[1]-y)).slice(0,2);
+      for(const q of near)if(q[2]>i)g.append(svgEl('line',{class:'amb-link',x1:x.toFixed(1),y1:y.toFixed(1),x2:q[0].toFixed(1),y2:q[1].toFixed(1)}));
+    }
+    for(const [x,y,i] of pts)g.append(svgEl('circle',{class:'amb-dot',cx:x.toFixed(1),cy:y.toFixed(1),r:(1.2+rnd()*1.6).toFixed(1),style:'animation-delay:'+(-rnd()*6).toFixed(2)+'s'}));
+    const syn=document.querySelector('#brain-core .core-synapses');
+    if(syn)for(let i=0;i<14;i++){const a=i/14*Math.PI*2+0.2,r1=34+rnd()*8,r2=64;syn.append(svgEl('path',{class:'syn',d:`M${(Math.cos(a)*r1).toFixed(1)} ${(Math.sin(a)*r1).toFixed(1)} L${(Math.cos(a+0.12)*r2).toFixed(1)} ${(Math.sin(a+0.12)*r2).toFixed(1)}`,style:'animation-delay:'+(-rnd()*3).toFixed(2)+'s'}));}
+  })();
 
   // ---------- wiring ----------
   $('rp-play').onclick=()=>replaying?(paused?resume():0):replay();

@@ -17,19 +17,7 @@ export function exceedsGroqBudget(id,request){
 // OpenRouter Omni vision chain) pass a wider failoverOn predicate instead: a
 // shared free-endpoint 429 there is routine, and the next hop costs nothing,
 // so failing the turn would be worse.
-export const failoverUpstream=error=>!!error&&(['TimeoutError','AbortError'].includes(error.name)||error instanceof TypeError||[413,502,503,504].includes(error.status));
-// Free-chain failover: used while the next hop is itself a free endpoint (NIM
-// Nemotron chain, OpenRouter :free mirrors), so a provider-side rejection —
-// bad key, retired model id, quota, oversized payload — costs nothing to hop
-// past instead of dead-ending the turn with a bare 400.
-export const failoverFreeChain=error=>failoverUpstream(error)||[400,401,402,403,404,429].includes(error?.status);
-// Selected-model failover: a model the user pinned has no free spare, so its
-// failures may only fall back to the guarded Gemini quota. Auth/model
-// rejections (400/401/403/404) hop — retrying them cannot succeed and the
-// user sees a dead chat otherwise. Rate limits (429/402) still surface: the
-// browser backs off, and silently spending the scarce Gemini daily quota on
-// a pinned model's limits would hide the real problem.
-export const failoverSelectedChain=error=>failoverUpstream(error)||[400,401,403,404].includes(error?.status);
+export const failoverUpstream=error=>!!error&&(['TimeoutError','AbortError'].includes(error.name)||error instanceof TypeError||error.providerFault===true||[413,502,503,504].includes(error.status));
 export async function generateWithOverflow(id,request,{generate,fallback,failoverOn=failoverUpstream,onFallback=()=>{}}){
  const overflow=async(original,reason)=>{
   if(!fallback){

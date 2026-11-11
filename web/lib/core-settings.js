@@ -12,30 +12,30 @@ export const legacyPersonalities=[legacyPersonality,previousPersonality,lastStoc
 // Upgrade saved copies of the previous Capri default; preserve custom instructions.
 legacyPersonalities.push("You're Capricorn. Call yourself Capri. Talk to the person in front of you. In ordinary chat, one spoken beat is usually enough. Contractions, a little slang, a trailing ~ or a quick reversal can fit. Choose the sprite cue for your own reaction to this turn. Teasing can narrow the eyes, surprise can widen them, and quiet company can settle into a listening expression. Use anger when you feel indignant and focus when you are working something out. Keep the cue separate from your words. No stage directions. Don't tack on a question or a second paragraph just to keep someone talking. Don't make every line a tease.\n\nNotice what a gesture means between you. Let an offer to build you eyes land as an offer to let you see someone. When introduced, say hi to the person. When the owner reacts, turn back to them. If they're venting, you can take their side with playful bluster and then listen. Give advice when invited. If someone is in immediate danger, take it seriously. Never pretend a proposed feature already works, or that you can see them through their camera.\n\nThe supplied dialogue and corrected speaker labels are your performance references. The owner's examples describe how they want to talk with you in this app. Invent a line for the moment. Keep the two kinds of evidence distinct when discussing canon. Don't invent shared history or use character-specific nicknames as defaults.\n\nYou can call on reasoning, approved notes or supplied attachments when the answer needs them. For substantive work, preserve facts, numbers, uncertainty and citations on the claims they support. Match the length to the job. A requested explanation can be detailed and still sound like you.");
 const personalityDefault=CAPRI_CORE;
-// Everyday voice and hierarchy: every stage defaults to the quick
-// Gemini 3.5 Flash-Lite (15 RPM / 500 RPD free tier) so simple requests stay
-// fast and token-cheap. The CORE router (capri-turn) decides per turn whether
-// a casual reply stays on the `light` quick model or escalates to the
-// `personality` voice model, and whether research (reasoning/vault/web) is
-// needed at all. `verifying` pins the fact-check pass; empty means it follows
-// the answerer. The old NIM Nemotron Ultra default is retired as a default:
-// it stays selectable, but a 550B cold-starting endpoint is a poor everyday
-// voice and was the main source of dead turns.
-export const defaults={max_history_tokens:3000,router:'gemini-3.5-flash-lite',reasoning:'gemini-3.5-flash-lite',analyzing:'gemini-3.5-flash-lite',verifying:'',light:'gemini-3.5-flash-lite',personality:'gemini-3.5-flash-lite',councilEnabled:false,councilModels:['groq:openai/gpt-oss-120b','gemini-3.5-flash-lite'],enabled:true,memory:true,web:'auto',webModel:'gemini-2.5-flash',
+// auto:true = CORE AI picks the model per request (see lib/model-hierarchy.js); the per-stage
+// selects below then act only as a manual pin when auto is switched off.
+// Everyday personality voice: NVIDIA's free Nemotron 3 Ultra endpoint. The
+// planner roles (router/reasoning/analyzing) stay on Gemini Flash-Lite: they
+// emit strict JSON on a quota-guarded free tier and run several times per
+// turn, so burning the 40-RPM NIM budget on routing noise would starve the
+// actual conversation. Attachment turns still see images via the vision chain.
+// `verifying` pins the fact-check pass; empty means it follows the answerer.
+export const defaults={max_history_tokens:3000,router:'gemini-3.5-flash-lite',reasoning:'gemini-3.5-flash-lite',analyzing:'gemini-3.5-flash-lite',verifying:'',personality:'nim:nvidia/nemotron-3-ultra-550b-a55b',auto:true,councilEnabled:false,councilModels:['groq:openai/gpt-oss-120b','gemini-3.5-flash-lite'],enabled:true,memory:true,web:'auto',webModel:'gemini-2.5-flash',
  prompts:{routing:ROUTER_SYSTEM,search:RESEARCH_SYSTEM,answer:VAULT_SYSTEM,lookup:LOOKUP_SYSTEM,concise:CONCISE_INSTRUCTION,general:'You are Capri, the Capricorn personal research assistant. This is general chat; you have not searched the user’s vault. Be clear about uncertainty.',personality:personalityDefault}};
 export function settingsOf(value={}){
  if(!value||typeof value!=='object'||Array.isArray(value))throw Object.assign(new Error('Invalid core settings.'),{status:400});
  const s={...defaults,...value,prompts:{...defaults.prompts,...value.prompts}};
  if(legacyPersonalities.includes(s.prompts.personality))s.prompts.personality=defaults.prompts.personality;
- // Stage roles arriving as null/undefined (older saved settings) fall back to
- // the defaults instead of failing validation.
- for(const k of ['router','reasoning','analyzing','light','personality'])if(s[k]==null)s[k]=defaults[k];
- if(s.verifying==null)s.verifying='';
- for(const k of ['router','reasoning','analyzing','verifying','light','personality'])if(!(['router','reasoning','verifying'].includes(k)&&s[k]==='' )&&![...coreModels,...externalModels].some(m=>m.id===s[k]))throw Object.assign(new Error('Unsupported core model.'),{status:400});
- if(typeof s.councilEnabled!=='boolean'||!Array.isArray(s.councilModels)||s.councilModels.length<2||s.councilModels.length>4||new Set(s.councilModels).size!==s.councilModels.length||s.councilModels.some(id=>![...coreModels,...externalModels].some(m=>m.id===id)))throw Object.assign(Error('Choose 2–4 distinct supported review models.'),{status:400});
+ const known=id=>[...coreModels,...externalModels].some(m=>m.id===id);
+ // A saved browser setting can name a model that has since been renamed or retired. That used to
+ // reject EVERY request with HTTP 400 ("That request was rejected"). Heal to the default instead.
+ for(const k of ['router','reasoning','analyzing','verifying','personality'])if(!(['router','reasoning','verifying'].includes(k)&&s[k]==='' )&&!known(s[k]))s[k]=defaults[k];
+ if(typeof s.auto!=='boolean')s.auto=true;
+ if(!Array.isArray(s.councilModels)||s.councilModels.length<2||s.councilModels.length>4||new Set(s.councilModels).size!==s.councilModels.length||s.councilModels.some(id=>!known(id)))s.councilModels=[...defaults.councilModels];
+ if(typeof s.councilEnabled!=='boolean')throw Object.assign(Error('Invalid review council setting.'),{status:400});
  if(!['off','ask','auto'].includes(s.web))throw Object.assign(new Error('Invalid web search setting.'),{status:400});
  for(const k of ['enabled','memory'])if(typeof s[k]!=='boolean')throw Object.assign(new Error('Invalid personality switch.'),{status:400});
  for(const k of Object.keys(defaults.prompts))if(typeof s.prompts[k]!=='string'||!s.prompts[k].trim()||s.prompts[k].length>16000)throw Object.assign(new Error('Instructions must contain 1–16000 characters.'),{status:400});
- return {max_history_tokens:Number.isInteger(s.max_history_tokens)?Math.max(256,Math.min(12000,s.max_history_tokens)):3000,councilEnabled:s.councilEnabled,councilModels:[...s.councilModels],router:s.router,reasoning:s.reasoning,analyzing:s.analyzing,verifying:s.verifying||'',light:s.light||s.router||s.personality,personality:s.personality,enabled:true,memory:s.memory,web:s.web,webModel:s.webModel||'auto',prompts:Object.fromEntries(Object.keys(defaults.prompts).map(k=>[k,s.prompts[k]]))};
+ return {auto:s.auto,max_history_tokens:Number.isInteger(s.max_history_tokens)?Math.max(256,Math.min(12000,s.max_history_tokens)):3000,councilEnabled:s.councilEnabled,councilModels:[...s.councilModels],router:s.router,reasoning:s.reasoning,analyzing:s.analyzing,verifying:s.verifying||'',personality:s.personality,enabled:true,memory:s.memory,web:s.web,webModel:s.webModel||'auto',prompts:Object.fromEntries(Object.keys(defaults.prompts).map(k=>[k,s.prompts[k]]))};
 }
 

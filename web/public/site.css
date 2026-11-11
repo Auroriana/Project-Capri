@@ -1996,277 +1996,199 @@ input[type=checkbox]:not(.sw>input):focus-visible{outline:2px solid var(--acid);
 .pipeline-view button,.pipeline-view select{margin:8px}
 }
 
-/* ==========================================================================
-   BRAIN — the permanent neural-core panel on the right of the screen.
-   The section owns its own grid column beside chat/notes/quick; the BRAIN
-   header button toggles it (#app.brain-off). On mobile (<=860px) it becomes
-   a slide-in overlay (#app.brain-open) that starts closed.
-   The core is a pure-SVG pulsing soma: shell + two counter-rotating rings,
-   phase-driven breathing, glitch canvas on merge, expanding shockwaves.
-   JS contract (brain.js): #brain[data-phase][data-replay], .dendrite /
-   .model-node[data-state][data-selected], .bolt[data-dir], .hud[data-state],
-   .meter[data-stage][data-active] with --v fill, #brain-glitch[data-active],
-   .log-pane[data-state][data-active] (terminals.js).
-   ========================================================================== */
+/* ===== BRAIN dock (right side, always on) ===== */
 @scope (:root[data-style-page="index"]) {
+/* ==========================================================================
+   BRAIN — permanent right-hand panel. The Brain had no stylesheet before this block.
+   Layout   #app is "header header / main brain". .brain-open gives the dock its width;
+            below 900px it becomes a bottom sheet the BRAIN button opens.
+   Core     pure SVG, no image: halo, two counter-rotating orbits, notched shell, neural
+            soma with synapse spokes, and a blue-ringed eye (her face colours) that
+            dilates while working. data-phase on #brain drives every state.
+   Contract (brain.js): #brain[data-phase|data-replay] .model-node[data-state|data-tier]
+            .dendrite[data-state] .bolt[data-dir] .hud[data-state] .meter[data-stage|data-active]
+            #brain-glitch[data-active] .log-pane[data-state|data-active] #detail-drawer[data-open]
+   ========================================================================== */
+:scope{--brain-w:clamp(360px,34vw,540px)}
+#app,#app.hc,#app.nm{grid-template:"h h" var(--hdr) "m b" minmax(0,1fr)/minmax(0,1fr) 0}
+#app.brain-open,#app.brain-open.hc,#app.brain-open.nm{grid-template-columns:minmax(0,1fr) var(--brain-w)}
+#app>header{grid-area:h}
+#app>main{grid-area:m}
+#app>.brain-dock{grid-area:b}
+#app>main{width:100%!important}
 
-/* ---------- layout: two columns, brain pinned right ---------- */
-#app>main{
-  display:grid;
-  grid-template-columns:minmax(0,1fr) clamp(320px,34vw,500px);
-}
-#app>main>#chat,#app>main>#notes,#app>main>#quick{grid-column:1;grid-row:1;min-width:0;min-height:0}
-#app>main>#terminals-view{grid-column:2;grid-row:1;min-height:0}
-#app.brain-off>main{grid-template-columns:minmax(0,1fr)}
-#app.brain-off>main>#terminals-view{display:none}
-#app>main>#terminals-view{
-  display:flex;flex-direction:column;overflow:hidden;
+.brain-dock{
+  position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;z-index:8;
   background:
-    radial-gradient(ellipse 90% 30% at 80% 0,rgba(122,92,255,.10),transparent 70%),
-    radial-gradient(ellipse 70% 30% at 0 100%,rgba(255,10,69,.07),transparent 70%),
-    linear-gradient(180deg,#0a0512,#07030c);
-  border-left:1px solid #2c1b3d;
+    radial-gradient(ellipse 90% 45% at 50% 28%,rgba(122,92,255,.16),transparent 70%),
+    radial-gradient(ellipse 70% 40% at 50% 100%,rgba(255,10,69,.12),transparent 70%),
+    linear-gradient(180deg,#0a0510,#06030a);
+  border-left:1px solid var(--line-2);
 }
+.brain-dock::before{ /* edge light: red → violet → acid, like every other panel edge */
+  content:'';position:absolute;top:0;bottom:0;left:-1px;width:2px;z-index:3;pointer-events:none;
+  background:linear-gradient(180deg,var(--red),var(--violet) 55%,var(--acid) 90%,transparent);opacity:.7;
+}
+.dock-head{display:flex;align-items:center;gap:10px;padding:0 12px 0 16px;height:38px;flex:none;border-bottom:1px solid var(--line);background:rgba(10,5,16,.8)}
+.dock-head b{font:700 11px var(--font-display);letter-spacing:.3em;color:var(--red-soft)}
+.dock-tier{margin-left:auto;font:700 10px var(--font-display);letter-spacing:.18em;padding:3px 9px;color:var(--dim);background:var(--panel-2);clip-path:var(--cut-xs);transition:color .3s,background-color .3s}
+.dock-tier[data-tier=quick]{color:#04120a;background:var(--acid)}
+.dock-tier[data-tier=standard]{color:#fff;background:var(--violet)}
+.dock-tier[data-tier=deep]{color:#fff;background:var(--red)}
+#dock-close{border:0;background:none;color:var(--dim);padding:2px 8px;font-size:18px;line-height:1}
+#dock-close:hover:not(:disabled){background:none;color:var(--red-soft);box-shadow:none}
+#tt[data-busy=true]::after{content:'';display:inline-block;width:6px;height:6px;margin-left:7px;background:var(--red);border-radius:50%;animation:brain-blink .7s steps(2) infinite;vertical-align:middle}
+@keyframes brain-blink{50%{opacity:.15}}
 
-/* ---------- slim panel header ---------- */
-.brain-bar{
-  flex:none;display:flex;justify-content:space-between;align-items:center;gap:10px;
-  height:38px;padding:0 14px;border-bottom:1px solid #2c1b3d;
-  background:linear-gradient(180deg,#0e0717,#090410);
-}
-.brain-bar b{
-  font:700 11px/1 var(--font-display);letter-spacing:.32em;color:var(--bone);
-  text-shadow:-1px 0 var(--acid),1px 0 var(--violet);
-}
-.brain-phase{display:flex;align-items:center;gap:7px;font:700 8.5px/1 var(--font-display);letter-spacing:.18em;color:var(--mist)}
-.brain-phase i{width:7px;height:7px;background:var(--acid);clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);animation:line-open 2.2s ease-in-out infinite}
-.brain-phase em{font-style:normal}
-#terminals-view:has(#brain[data-phase=working]) .brain-phase,
-#terminals-view:has(#brain[data-phase=merging]) .brain-phase{color:var(--acid)}
-#terminals-view:has(#brain[data-phase=done]) .brain-phase{color:var(--violet-soft)}
-
-/* ---------- the neural map ---------- */
-#brain{
-  position:relative;flex:none;display:flex;flex-direction:column;
-  background:
-    radial-gradient(ellipse 62% 72% at 50% 46%,rgba(122,92,255,.10),transparent 72%),
-    linear-gradient(180deg,#0a0512,#06030b);
-  border-bottom:1px solid #221236;
-}
-#brain::before{ /* one slow scanline over the map */
-  content:'';position:absolute;left:0;right:0;top:-2px;height:2px;z-index:2;pointer-events:none;
-  background:linear-gradient(90deg,transparent,rgba(255,255,255,.28),transparent);
-  animation:brain-sweep 9s linear infinite;
-}
-@keyframes brain-sweep{0%{top:-2px}100%{top:100%}}
-#brain[data-replay=playing]::after,
-#brain[data-replay=paused]::after{
-  content:'REPLAY';position:absolute;top:8px;right:10px;z-index:3;
-  padding:3px 8px;font:700 8.5px/1 var(--font-display);letter-spacing:.2em;
-  color:#10050d;background:var(--acid);clip-path:var(--cut-xs);
-}
-#brain[data-replay=paused]::after{content:'REPLAY ⏸';background:var(--violet-soft)}
-#brain-map{display:block;width:100%;height:clamp(190px,30vh,250px);flex:none}
-#brain-glitch{position:absolute;inset:0;width:100%;height:100%;z-index:4;pointer-events:none;opacity:0;transition:opacity .1s}
+/* ---------- stage ---------- */
+#brain{position:relative;flex:1 1 55%;min-height:260px;overflow:hidden}
+#brain-map{position:absolute;inset:0;width:100%;height:100%;display:block;overflow:visible}
+#brain-glitch{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:0;z-index:4;mix-blend-mode:screen}
 #brain-glitch[data-active=true]{opacity:1}
 
-/* ---------- the CORE: pulsing soma, no image ---------- */
-.core-shell{
-  fill:none;stroke:rgba(122,92,255,.5);stroke-width:1.3;stroke-dasharray:5 8;
-  transform-box:fill-box;transform-origin:center;animation:core-spin 26s linear infinite;
-}
-.core-ring{fill:none;transform-box:fill-box;transform-origin:center}
-.core-ring.r1{stroke:rgba(25,255,138,.34);stroke-width:1;stroke-dasharray:2 11;animation:core-spin 15s linear infinite reverse}
-.core-ring.r2{stroke:rgba(255,10,69,.3);stroke-width:1;stroke-dasharray:46 16 8 22;animation:core-spin 44s linear infinite}
-.core-soma{
-  fill:url(#core-grad);
-  transform-box:fill-box;transform-origin:center;
-  animation:core-breathe 3.4s ease-in-out infinite;
-  filter:drop-shadow(0 0 16px rgba(255,10,69,.38));
-}
-@keyframes core-spin{to{transform:rotate(1turn)}}
-@keyframes core-breathe{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.05);opacity:1}}
-/* phase: idle = slow violet ember · working = hot red · merging = violet surge · done = acid settle */
-#brain[data-phase=idle] .core-soma{animation-duration:5.6s;filter:drop-shadow(0 0 10px rgba(122,92,255,.3))}
-#brain[data-phase=idle] .core-shell{stroke:rgba(122,92,255,.34)}
-#brain[data-phase=working] .core-soma{animation-duration:1.5s;filter:drop-shadow(0 0 18px rgba(255,10,69,.5))}
-#brain[data-phase=merging] .core-soma{animation-duration:.85s;filter:drop-shadow(0 0 22px rgba(122,92,255,.65))}
-#brain[data-phase=done] .core-soma{animation:core-settle 2.6s ease-out both;filter:drop-shadow(0 0 14px rgba(25,255,138,.35))}
-@keyframes core-settle{0%{transform:scale(1.06)}55%{transform:scale(.98)}100%{transform:scale(1)}}
-#tt[data-busy=true] svg{animation:tt-orbit 1.2s linear infinite}
-@keyframes tt-orbit{to{transform:rotate(1turn)}}
+/* ambient network */
+.amb-link{stroke:var(--line-2);stroke-width:.7;opacity:.45}
+.amb-dot{fill:var(--violet-soft);opacity:.5;animation:amb-twinkle 5s ease-in-out infinite}
+@keyframes amb-twinkle{0%,100%{opacity:.15}50%{opacity:.75}}
 
-/* ---------- dendrites ---------- */
-.dendrite-main{fill:none;stroke:rgba(122,92,255,.6);stroke-width:1.6}
-.dendrite-twig{fill:none;stroke:rgba(25,255,138,.4);stroke-width:1.1}
-.dendrite[data-state=growing] .dendrite-main,
-.dendrite[data-state=growing] .dendrite-twig{stroke-dasharray:1200;stroke-dashoffset:1200;animation:dendrite-grow .5s var(--ease) forwards}
-@keyframes dendrite-grow{to{stroke-dashoffset:0}}
-.dendrite[data-state=live]{filter:drop-shadow(0 0 3px rgba(122,92,255,.55))}
-.dendrite[data-state=retracting]{opacity:0;transition:opacity .35s}
+/* ---------- the core ---------- */
+#brain-core{transform-box:fill-box;transform-origin:center}
+.core-halo{opacity:.55;transform-box:fill-box;transform-origin:center;animation:core-breathe 4.2s ease-in-out infinite}
+.core-orbit{fill:none;stroke-linecap:round;transform-box:fill-box;transform-origin:center}
+.core-orbit.o1{stroke:var(--violet);stroke-width:1.1;stroke-dasharray:2 9;opacity:.8;animation:orbit 36s linear infinite}
+.core-orbit.o2{stroke:var(--red);stroke-width:1;stroke-dasharray:46 20 6 20;opacity:.6;animation:orbit 24s linear infinite reverse}
+.core-sats{transform-box:fill-box;transform-origin:center}
+.sat.s1{fill:var(--acid)}.sat.s2{fill:var(--red-soft)}
+.core-shell{fill:none;stroke:var(--red);stroke-width:2.2;stroke-dasharray:118 14;stroke-linecap:butt;transform-box:fill-box;transform-origin:center;animation:orbit 60s linear infinite;filter:drop-shadow(0 0 5px rgba(255,10,69,.7))}
+.core-soma{stroke:var(--violet);stroke-width:1.2}
+.syn{stroke:var(--violet-soft);stroke-width:.8;opacity:.25;animation:syn-fire 3s ease-in-out infinite}
+@keyframes syn-fire{0%,100%{opacity:.12}45%{opacity:.8;stroke:var(--red-soft)}}
+@keyframes orbit{to{transform:rotate(360deg)}}
+@keyframes core-breathe{0%,100%{transform:scale(.94);opacity:.4}50%{transform:scale(1.04);opacity:.7}}
 
-/* ---------- sub-model nodes ---------- */
-.model-node{cursor:pointer;outline:none;transform-box:fill-box;transform-origin:center}
-.model-node .node-box{
-  fill:#0c0714;stroke:rgba(122,92,255,.65);stroke-width:1.6;
-  transition:stroke .2s,fill .2s;
-}
-.model-node .node-name{fill:var(--bone);font:700 22px var(--font-display);letter-spacing:.12em}
-.model-node .node-model{fill:var(--acid-soft);font:14px var(--font-mono)}
-.model-node[data-state=spawning]{animation:node-in .38s var(--ease) both}
-@keyframes node-in{from{opacity:0;transform:scale(.7)}}
-.model-node[data-state=live] .node-box{stroke:var(--acid);fill:#0d0a12;filter:drop-shadow(0 0 7px rgba(25,255,138,.3))}
-.model-node[data-state=leaving]{opacity:0;transition:opacity .35s}
-.model-node[data-selected] .node-box{stroke:var(--red);stroke-width:1.7;fill:#170a18}
-.model-node:focus-visible .node-box{stroke:var(--bone);stroke-width:1.7}
+.core-eye{transform-box:fill-box;transform-origin:center;animation:eye-blink 6.5s infinite}
+.eye-lid{fill:#050208;stroke:var(--acid);stroke-width:1.4;stroke-linejoin:round}
+.eye-ring{fill:none;stroke:var(--acid);stroke-width:2;opacity:.9}
+.eye-iris{transform-box:fill-box;transform-origin:center;animation:iris 5s ease-in-out infinite}
+.eye-pupil{fill:#000;transform-box:fill-box;transform-origin:center;animation:pupil 5s ease-in-out infinite}
+.eye-spark{fill:#fff;opacity:.9}
+@keyframes eye-blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.08)}}
+@keyframes iris{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+@keyframes pupil{0%,100%{transform:scale(1)}50%{transform:scale(.8)}}
 
-/* ---------- bolts + sparks ---------- */
-.bolt{pointer-events:none}
-.bolt-glow{fill:none;stroke:rgba(255,10,69,.32);stroke-linecap:round}
-.bolt-core{fill:none;stroke:#ffd9e4;stroke-linecap:round;filter:drop-shadow(0 0 3px rgba(255,10,69,.85))}
-.bolt.impact .bolt-core{stroke:#fff;filter:drop-shadow(0 0 5px rgba(255,255,255,.9))}
-.spark{stroke:var(--acid);stroke-width:1.3;animation:spark-fade .48s ease-out both}
-@keyframes spark-fade{from{opacity:.95}to{opacity:0}}
-.core-pulse{fill:none;stroke-width:2;transform-box:fill-box;transform-origin:center;opacity:0}
-.core-pulse.in{stroke:var(--violet);animation:pulse-in 1.25s var(--ease) both}
-.core-pulse.out{stroke:var(--red);stroke-width:2.6;animation:pulse-out 1.3s var(--ease) both}
-@keyframes pulse-in{0%{transform:scale(1.75);opacity:.85}100%{transform:scale(.5);opacity:0}}
-@keyframes pulse-out{0%{transform:scale(.55);opacity:.95}100%{transform:scale(2.15);opacity:0}}
+/* phases */
+#brain[data-phase=working] .core-orbit.o1{animation-duration:9s}
+#brain[data-phase=working] .core-orbit.o2{animation-duration:6s}
+#brain[data-phase=working] .core-shell{animation-duration:14s}
+#brain[data-phase=working] .core-halo{animation-duration:1.6s}
+#brain[data-phase=working] .syn{animation-duration:.9s}
+#brain[data-phase=working] .eye-pupil{animation-duration:1.1s}
+#brain[data-phase=working] .eye-iris{animation-duration:1.1s}
+#brain[data-phase=merging] .core-halo{animation-duration:.5s;opacity:1}
+#brain[data-phase=merging] .core-shell{stroke:#fff;animation-duration:3s}
+#brain[data-phase=merging] .syn{animation-duration:.35s}
+#brain[data-phase=done] .core-shell{stroke:var(--acid);filter:drop-shadow(0 0 7px rgba(25,255,138,.75))}
+#brain[data-phase=done] .eye-iris{filter:drop-shadow(0 0 8px #2f7bff)}
+#brain[data-phase=done] .core-halo{opacity:.8;filter:hue-rotate(150deg) saturate(1.4)}
+#core-label{font:700 11px var(--font-display);letter-spacing:.34em;fill:var(--mist);transition:fill .3s}
+#brain[data-phase=working] #core-label,#brain[data-phase=merging] #core-label{fill:var(--red-soft)}
+#brain[data-phase=done] #core-label{fill:var(--acid)}
 
-/* ---------- HUD speech panels ---------- */
-.hud{
-  position:relative;padding:7px 9px 8px;min-width:0;
-  background:rgba(8,4,15,.9);border:1px solid #2c1b3d;
-  clip-path:var(--cut-sm);
-}
-.hud header{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:5px;min-width:0}
-.hud header b{font:700 10px/1 var(--font-display);letter-spacing:.14em;color:var(--bone);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hud .hud-state{font:700 8px/1 var(--font-display);letter-spacing:.08em;color:var(--mist);flex:none}
-.hud pre{
-  font:10px/1.55 var(--font-mono);color:#c4ffdf;white-space:pre-wrap;
-  overflow:hidden;max-height:104px;min-height:15px;overflow-wrap:anywhere;margin:0;
-}
-.hud .cursor{display:inline-block;width:7px;height:11px;margin-top:2px;background:var(--acid);animation:cursor-blink 1.05s steps(1) infinite}
-@keyframes cursor-blink{50%{opacity:0}}
-.hud[data-state=writing]{border-color:rgba(25,255,138,.5)}
+/* completion: inward pulses, then one outward shockwave */
+.core-pulse{fill:none;stroke-width:2;transform-box:fill-box;transform-origin:center}
+.core-pulse.in{stroke:var(--red);animation:pulse-in 1.1s ease-in forwards}
+.core-pulse.out{stroke:var(--acid);stroke-width:3;animation:pulse-out 1.25s cubic-bezier(.1,.7,.2,1) forwards}
+@keyframes pulse-in{0%{transform:scale(2.6);opacity:0}30%{opacity:.9}100%{transform:scale(.7);opacity:0}}
+@keyframes pulse-out{0%{transform:scale(.8);opacity:1}100%{transform:scale(4.2);opacity:0}}
+
+/* ---------- dendrites + nodes ---------- */
+.dendrite path{fill:none;stroke-linecap:round}
+.dendrite-main{stroke:var(--red);stroke-width:1.6;stroke-dasharray:1200;stroke-dashoffset:1200;opacity:.85;transition:stroke-dashoffset .38s ease-out,opacity .3s}
+.dendrite-twig{stroke:var(--violet);stroke-width:1;stroke-dasharray:1200;stroke-dashoffset:1200;opacity:.7;transition:stroke-dashoffset .5s ease-out .1s}
+.dendrite[data-state=live] path,.dendrite[data-state=growing] path{stroke-dashoffset:0}
+.dendrite[data-state=retracting] path{stroke-dashoffset:1200;opacity:0}
+
+.model-node{cursor:pointer;outline:none;transform-box:fill-box;transform-origin:center;transition:opacity .3s,transform .35s var(--ease)}
+.model-node[data-state=spawning]{opacity:0;transform:scale(.6)}
+.model-node[data-state=leaving]{opacity:0;transform:scale(.7)}
+.node-box{fill:#0c0614;stroke:var(--violet);stroke-width:1.3}
+.model-node:hover .node-box,.model-node:focus-visible .node-box,.model-node[data-selected=true] .node-box{stroke:var(--acid);fill:#120a1d}
+.model-node[data-tier=quick] .node-box{stroke:var(--acid)}
+.model-node[data-tier=standard] .node-box{stroke:var(--violet)}
+.model-node[data-tier=deep] .node-box{stroke:var(--red);filter:drop-shadow(0 0 6px rgba(255,10,69,.55))}
+.node-name{font:700 12px var(--font-display);letter-spacing:.16em;fill:var(--bone)}
+.node-model{font:500 9.5px var(--font-mono);fill:var(--mist)}
+
+/* ---------- lightning ---------- */
+.bolt polyline{fill:none;stroke-linejoin:round;stroke-linecap:round}
+.bolt-glow{stroke:var(--red);opacity:.35;filter:blur(2px)}
+.bolt-core{stroke:#ffd3de}
+.bolt[data-dir=in] .bolt-core{stroke-dasharray:6 5}
+.bolt[data-dir=in] .bolt-glow{stroke:var(--violet)}
+.bolt.impact{opacity:.4}
+.spark{stroke:#fff;stroke-width:1.4;stroke-linecap:round;animation:spark-fade .48s ease-out forwards}
+@keyframes spark-fade{from{opacity:1}to{opacity:0}}
+
+/* ---------- HUD text panes ---------- */
+.hud{background:rgba(6,3,10,.88);border:1px solid var(--line-2);border-left:3px solid var(--red);clip-path:var(--cut-xs);min-width:0}
+.hud>header{display:flex;justify-content:space-between;gap:8px;padding:3px 9px;border-bottom:1px solid var(--line);font:700 9px var(--font-display);letter-spacing:.2em}
+.hud>header b{color:var(--red-soft)}
+.hud-state{color:var(--dim)}
 .hud[data-state=writing] .hud-state{color:var(--acid)}
-.hud[data-state=done]{opacity:.72}
-.hud[data-state=idle] .hud-state{color:var(--dim)}
-.hud pre:focus-visible{outline:1px solid var(--acid)}
-.core-speech{
-  position:static;margin:8px;width:auto;flex:none;max-height:150px;
-  border-color:rgba(255,10,69,.42);
-  background:rgba(10,4,14,.92);
-}
-.core-speech header b{color:var(--red-soft);text-shadow:-1px 0 rgba(25,255,138,.6),1px 0 rgba(122,92,255,.6)}
-.core-speech[hidden]{display:none}
+.hud[data-state=done] .hud-state{color:var(--violet-soft)}
+.hud pre{margin:0;padding:6px 9px;font:11px/1.5 var(--font-mono);color:#e8defa;white-space:pre-wrap;overflow-wrap:anywhere;max-height:9em;overflow:hidden}
+.hud .cursor{display:inline-block;width:6px;height:11px;margin:0 0 6px 9px;background:var(--acid);animation:brain-blink .8s steps(2) infinite}
+.hud[data-state=done] .cursor,.hud[data-state=idle] .cursor{display:none}
+.core-speech{position:absolute;left:10px;right:10px;bottom:10px;z-index:3}
 
-/* ---------- dialogue row: node streams + detail drawer ---------- */
-#dialogue-row{flex:none;display:flex;flex-wrap:wrap;gap:8px;padding:10px;max-height:236px;overflow:auto;border-bottom:1px solid #221236}
-#node-speeches{display:grid;flex:1;min-width:100%;grid-template-columns:repeat(auto-fill,minmax(146px,1fr));gap:8px}
+/* ---------- lower half ---------- */
+.dock-scroll{flex:1 1 45%;min-height:0;overflow:auto;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px;padding:10px 12px 14px}
+#dialogue-row{display:flex;flex-direction:column;gap:8px}
+#node-speeches{display:flex;flex-direction:column;gap:8px}
 #node-speeches:empty{display:none}
-#node-speeches .hud{animation:node-in .3s var(--ease) both}
-#detail-drawer{flex-basis:100%;border:1px solid #2c1b3d;background:rgba(8,4,15,.92);clip-path:var(--cut-sm)}
-#detail-drawer header{
-  display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;
-  padding:6px 9px;font:700 9px/1 var(--font-display);letter-spacing:.18em;color:var(--violet-soft);
-  user-select:none;
-}
-#detail-drawer header b{color:var(--bone)}
-#detail-drawer header:hover{color:var(--acid)}
-.drawer-hint{font:600 8px/1 var(--font-mono);letter-spacing:.06em;color:var(--dim)}
-#detail-drawer[data-open=false] .drawer-text{display:none}
-#detail-drawer .drawer-text{
-  max-height:150px;overflow:auto;margin:0;padding:8px 10px 10px;
-  font:10px/1.55 var(--font-mono);color:#cdd3ff;white-space:pre-wrap;overflow-wrap:anywhere;
-  border-top:1px dashed #2c1b3d;
-}
-.drawer-reveal{
-  border:0;background:var(--panel-3);color:var(--mist);
-  font:700 8px/1 var(--font-display);letter-spacing:.14em;padding:3px 8px;
-  clip-path:var(--cut-xs);cursor:pointer;
-}
-.drawer-reveal:hover{background:var(--red);color:#fff}
+.node-speech[data-speaker=planner],.node-speech[data-speaker=summarizer]{border-left-color:var(--violet)}
+.node-speech[data-speaker=answerer],.node-speech[data-speaker=personality]{border-left-color:var(--acid)}
+.node-speech[data-speaker=verifier],.node-speech[data-speaker=council]{border-left-color:var(--eye)}
+#detail-drawer{border:1px solid var(--line);background:#08040d}
+#detail-drawer>header{display:flex;align-items:center;gap:8px;padding:5px 9px;cursor:pointer;font:700 9px var(--font-display);letter-spacing:.2em;color:var(--mist)}
+.drawer-hint{margin-left:auto;color:var(--dim);font-weight:500;letter-spacing:.1em}
+.drawer-reveal{padding:1px 7px;font-size:9px}
+.drawer-text{display:none;margin:0;padding:8px 10px;max-height:200px;overflow:auto;font:11px/1.55 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere;color:#d8cdf0}
+#detail-drawer[data-open=true] .drawer-text{display:block}
 
-/* ---------- token meters ---------- */
-#token-meters{flex:none;display:flex;flex-direction:column;gap:2px;padding:8px 12px;border-bottom:1px solid #221236}
+#token-meters{display:flex;flex-direction:column;gap:3px}
 #token-meters:empty{display:none}
-.meter{
-  display:grid;grid-template-columns:62px 1fr 1fr 46px;gap:8px;align-items:center;
-  font:600 9px/1.3 var(--font-display);letter-spacing:.08em;color:var(--mist);
-  padding:2px 0;transition:opacity .2s;
-}
-.meter-label{color:var(--violet-soft)}
-.meter-latency{font:400 9px var(--font-mono);color:var(--dim);text-align:right}
-.meter-in,.meter-out{
-  padding:2px 6px;height:15px;display:flex;align-items:center;
-  background:linear-gradient(90deg,rgba(122,92,255,.38) calc(var(--v,0)*100%),rgba(18,10,30,.9) 0);
-  clip-path:var(--cut-xs);
-}
-.meter-out{background:linear-gradient(90deg,rgba(255,10,69,.38) calc(var(--v,0)*100%),rgba(18,10,30,.9) 0)}
-.meter[data-active]{opacity:1;outline:1px solid rgba(25,255,138,.35)}
-.meter:not([data-active]){opacity:.66}
-.meter[data-stage=total]{border-top:1px dashed #2c1b3d;padding-top:5px;margin-top:3px}
-.meter[data-stage=total] .meter-label{color:var(--bone)}
+.meter{display:grid;grid-template-columns:64px 1fr 1fr 48px;gap:8px;align-items:center;font:500 10px var(--font-mono);color:var(--mist);padding:3px 6px;border-left:2px solid transparent;opacity:.75}
+.meter[data-active=true]{opacity:1;border-color:var(--acid);background:linear-gradient(90deg,rgba(25,255,138,.1),transparent)}
+.meter-label{font:700 9px var(--font-display);letter-spacing:.16em;color:var(--bone)}
+.meter-in,.meter-out{position:relative;padding:1px 4px;background:linear-gradient(90deg,var(--bar) calc(var(--v,0)*100%),transparent 0);--bar:rgba(122,92,255,.4)}
+.meter-out{--bar:rgba(255,10,69,.45)}
+.meter-latency{text-align:right;color:var(--dim)}
+.meter[data-stage=total]{margin-top:2px;border-top:1px solid var(--line);color:var(--bone)}
 
-/* ---------- replay controls ---------- */
-#replay-bar{flex:none;display:flex;align-items:center;gap:6px;padding:7px 12px;border-bottom:1px solid #221236}
-#replay-bar button{
-  height:24px;padding:0 11px;border:0;background:var(--panel-3);color:var(--mist);
-  font:700 9px/1 var(--font-display);letter-spacing:.12em;clip-path:var(--cut-xs);
-  transition:background .15s,color .15s;
-}
-#replay-bar button:hover:not(:disabled){background:var(--red);color:#fff}
-#replay-bar select{
-  height:24px;margin-left:auto;padding:0 6px;border:1px solid var(--line-2);
-  background:#0a0511;color:var(--acid);font:600 9px var(--font-mono);border-radius:0;max-width:none;
+#replay-bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#replay-bar button,#replay-bar select{height:26px;padding:0 9px;font:700 10px var(--font-display);letter-spacing:.12em;clip-path:var(--cut-xs)}
+#brain[data-replay=playing]~.dock-scroll #rp-play{color:var(--acid);border-color:var(--acid)}
+#brain[data-replay=paused]~.dock-scroll #rp-pause{color:var(--red-soft);border-color:var(--red)}
+
+/* ---------- RAG log panes ---------- */
+#rag-logs{display:flex;flex-direction:column;gap:6px}
+.log-pane{border:1px solid var(--line);border-left:3px solid var(--violet);background:#08040d;cursor:pointer;opacity:.7;transition:opacity .2s,border-color .2s}
+.log-pane[data-state=reading]{border-left-color:var(--red)}
+.log-pane[data-state=done]{border-left-color:var(--acid)}
+.log-pane[data-state=skipped]{border-left-color:var(--dim);opacity:.45}
+.log-pane[data-active=true]{opacity:1;box-shadow:0 0 0 1px rgba(25,255,138,.3)}
+.log-title{display:flex;justify-content:space-between;gap:8px;padding:3px 9px;font:700 9px var(--font-display);letter-spacing:.14em;color:var(--mist);border-bottom:1px solid var(--line)}
+.log-content{margin:0;padding:6px 9px;max-height:5.6em;overflow:hidden;font:10.5px/1.5 var(--font-mono);color:#cbbfe3;white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* ---------- small screens: bottom sheet ---------- */
+@media(max-width:900px){
+  #app,#app.hc,#app.nm,#app.brain-open,#app.brain-open.hc,#app.brain-open.nm{grid-template:"h" var(--hdr) "m" minmax(0,1fr)/minmax(0,1fr)}
+  #app>.brain-dock{position:fixed;left:0;right:0;bottom:0;height:min(70dvh,600px);z-index:45;border-left:0;border-top:2px solid var(--red);box-shadow:0 -18px 60px #000c}
+  .brain-dock::before{display:none}
 }
 
-/* ---------- retrieval log panes (terminals.js) ---------- */
-#rag-logs{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:7px;padding:10px 12px 16px}
-#rag-logs:empty::after{
-  content:'NO ACTIVITY YET — SEND A MESSAGE AND THE RETRIEVAL LOG LANDED HERE';
-  font:600 9px/1.7 var(--font-display);letter-spacing:.14em;color:var(--dim);text-align:center;padding:18px 6px;
-}
-.log-pane{border:1px solid #241637;background:rgba(10,6,18,.85);clip-path:var(--cut-sm);transition:border-color .2s,opacity .2s}
-.log-pane .log-title{
-  display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;
-  padding:6px 9px 5px;font:700 9px/1.2 var(--font-display);letter-spacing:.14em;
-  color:var(--violet-soft);text-transform:uppercase;user-select:none;
-}
-.log-pane .log-title strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.log-pane time{color:var(--dim);font:400 8.5px var(--font-mono);letter-spacing:0;flex:none}
-.log-pane .log-content{
-  margin:0;padding:0 9px 8px;font:10px/1.6 var(--font-mono);color:#9fe8c0;
-  white-space:pre-wrap;overflow-wrap:anywhere;max-height:118px;overflow:auto;
-}
-.log-pane[data-state=reading]{border-color:rgba(25,255,138,.45)}
-.log-pane[data-state=reading] .log-title{color:var(--acid)}
-.log-pane[data-state=reading] .log-title::after{content:'▂▆▃';letter-spacing:1px;animation:terminal-signal 1.3s steps(4) infinite}
-.log-pane[data-state=done]{opacity:.68}
-.log-pane[data-state=skipped]{opacity:.45}
-.log-pane[data-state=failed]{border-color:var(--red)}
-.log-pane[data-state=failed] .log-title{color:var(--red-soft)}
-.log-pane[data-active]{border-color:var(--acid);opacity:1;box-shadow:0 0 14px rgba(25,255,138,.14)}
-
-/* ---------- mobile: slide-in overlay, closed by default ---------- */
-@media(max-width:860px){
-  #app>main{display:flex;flex-direction:column}
-  #app>main>#chat,#app>main>#notes,#app>main>#quick{flex:1;min-height:0}
-  #app>main>#terminals-view{
-    position:fixed;top:var(--hdr,56px);right:0;bottom:0;width:min(94vw,440px);z-index:30;
-    border-left:1px solid var(--line-2);
-    box-shadow:-18px 0 60px rgba(0,0,0,.6);
-    transform:translateX(103%);
-    transition:transform .38s var(--ease);
-  }
-  #app.brain-open>main>#terminals-view{transform:none}
-  #brain-map{height:185px}
-  #dialogue-row{max-height:180px}
-}
 @media(prefers-reduced-motion:reduce){
-  .core-shell,.core-ring,.core-soma{animation:none!important}
-  #brain::before{animation:none!important;top:30%;
-    background:linear-gradient(90deg,transparent,rgba(255,255,255,.1),transparent)}
+  .core-orbit,.core-shell,.core-halo,.syn,.amb-dot,.eye-iris,.eye-pupil,.core-eye,.hud .cursor{animation:none!important}
 }
 }

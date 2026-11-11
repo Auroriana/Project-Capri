@@ -34,7 +34,7 @@ assert.ok(boltWidth(5000)>3&&boltWidth(5000)<=3.6,'thickness clamps');
   const seen=new Set();
   for(let i=0;i<6;i++){
     const [x,y]=slotPoint(i);
-    assert.ok(x>180&&x<820&&y>20&&y<450,'slot '+i+' inside viewBox');
+    assert.ok(x>100&&x<500&&y>60&&y<500,'slot '+i+' inside viewBox');
     seen.add(Math.round(x)+':'+Math.round(y));
   }
   assert.equal(seen.size,6);

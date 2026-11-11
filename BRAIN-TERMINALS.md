@@ -114,3 +114,9 @@ numbers masked; **REVEAL** toggles the raw text.
   files on Windows; it passes on your machine).
 - `npm run test:conversation:browser` and `npm run test:chat:browser` — PASS
   (verified headless in Chromium; they had silently rotted before this change).
+
+## Update: always-on Brain dock + model hierarchy
+
+- Brain is a permanent right-hand panel on every tab (BRAIN button hides/shows it; bottom sheet under 900px). Core is pure SVG (no image). Styles live in the last block of `web/public/site.css`.
+- `web/lib/model-hierarchy.js`: CORE AI picks a tier (quick / standard / deep; Overclock = deep). Each tier is an ordered failover chain of configured models. Settings → CORE MODULES → AUTO (default on); off = your pinned stage models go first.
+- Upstream 4xx errors are provider faults (HTTP 502 + failover), no longer reported as "That request was rejected". Stale saved model IDs heal to defaults.

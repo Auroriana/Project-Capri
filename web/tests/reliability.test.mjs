@@ -63,8 +63,8 @@ test('quota failure checkpoints research and resumes without repeating successfu
   if(url.includes('aria_reserve'))return Response.json(true);
   if(url.includes('aria_vault_overview'))return Response.json([]);
   if(url.includes('aria_search')){searches++;return Response.json([{id:'poem',title:'Love poetry',source_path:'Poem.md',content:'Love poetry quotation',vault_name:'Notes'}]);}
-  calls++;if(calls===2)return Response.json({error:{details:[]}},{status:429});
-  const answer=calls===1?'{"intent":"case","queries":["love poetry"]}':calls===3?'{"queries":[]}':'Found your poem [S1].';
+  calls++;if(calls>=2&&calls<=4)return Response.json({error:{details:[]}},{status:429}); // quota hits all three Gemini candidates, so the turn checkpoints
+  const answer=calls===1?'{"intent":"case","queries":["love poetry"]}':calls===5?'{"queries":[]}':'Found your poem [S1].';
   return Response.json({candidates:[{content:{parts:[{text:answer}]}}],usageMetadata:{promptTokenCount:20,candidatesTokenCount:10,totalTokenCount:30}});
  });
  const body={model:'gemini-3.5-flash-lite',mode:'vault',message:'Find love poetry',resumable:true};
